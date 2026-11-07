@@ -245,13 +245,11 @@ def import_species_table(con, path) -> int:
         import csv
 
         with open(path, newline="", encoding="utf-8-sig") as f:
-            sample = f.read(2048)
+            first = f.readline()
             f.seek(0)
-            try:
-                dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-            except csv.Error:
-                dialect = csv.excel
-            rows = [r for r in csv.reader(f, dialect)]
+            # Excel in many locales saves CSV with ';'. Pick the most frequent separator.
+            delim = max([",", ";", "\t"], key=first.count) if any(c in first for c in ",;\t") else ","
+            rows = [r for r in csv.reader(f, delimiter=delim)]
     n = 0
     for i, r in enumerate(rows):
         if not r or not r[0].strip():
