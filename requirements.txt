@@ -1,0 +1,8 @@
+PySide6>=6.7,<6.10
+onnxruntime-directml>=1.18 ; sys_platform == "win32"
+onnxruntime>=1.18 ; sys_platform != "win32"
+opencv-python-headless>=4.9
+numpy>=1.26,<3
+Pillow>=10
+matplotlib>=3.8
+openpyxl>=3.1

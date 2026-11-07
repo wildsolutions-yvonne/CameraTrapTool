@@ -1,0 +1,113 @@
+name: Build Windows installer
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  model:
+    name: Convert MegaDetector to ONNX
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache ONNX model
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: models/md_v5a.onnx
+          key: md_v5a-onnx-1280-v1
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Export with YOLOv5 (the version MegaDetector v5 was trained with)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone https://github.com/ultralytics/yolov5 yolov5
+          cd yolov5
+          git checkout c23a441c9df7ca9b1f275e8c8719c949269160d1
+          pip install "torch==2.2.2" "torchvision==0.17.2" --index-url https://download.pytorch.org/whl/cpu
+          pip install "numpy<2" "onnx==1.16.1" opencv-python-headless pandas pyyaml requests tqdm matplotlib seaborn scipy "pillow<10"
+          curl -L -o md_v5a.0.0.pt https://github.com/agentmorris/MegaDetector/releases/download/v5.0/md_v5a.0.0.pt
+          python export.py --weights md_v5a.0.0.pt --include onnx --imgsz 1280 --opset 12
+          mkdir -p ../models
+          mv md_v5a.0.0.onnx ../models/md_v5a.onnx
+
+      - name: Check the model finds people in a sample photo
+        run: |
+          pip install onnxruntime opencv-python-headless "numpy<2" pillow
+          curl -L -o zidane.jpg https://raw.githubusercontent.com/ultralytics/yolov5/c23a441c9df7ca9b1f275e8c8719c949269160d1/data/images/zidane.jpg
+          python tools/export_megadetector_onnx.py models/md_v5a.onnx zidane.jpg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model
+          path: models/md_v5a.onnx
+
+  windows:
+    name: Build installer
+    needs: model
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: model
+          path: models
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pyinstaller==6.10.0
+
+      - name: Run tests
+        run: python -m pytest -q tests
+
+      - name: Check detector runs on Windows
+        shell: bash
+        run: |
+          curl -L -o zidane.jpg https://raw.githubusercontent.com/ultralytics/yolov5/c23a441c9df7ca9b1f275e8c8719c949269160d1/data/images/zidane.jpg
+          python tools/export_megadetector_onnx.py models/md_v5a.onnx zidane.jpg
+          python -c "import onnxruntime as o; print('Providers:', o.get_available_providers())"
+
+      - name: Bundle app with PyInstaller
+        run: >
+          pyinstaller run.py --noconfirm --windowed --name CameraTrapTool
+          --add-data "models;models"
+          --collect-binaries onnxruntime
+          --exclude-module tkinter
+
+      - name: Smoke test (start app, check it imports)
+        shell: bash
+        run: |
+          python -c "import ctt.gui.main_window, ctt.gui.labeller, ctt.gui.dashboard, ctt.gui.review_grid; print('GUI imports OK')"
+
+      - name: Build installer with Inno Setup
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}".TrimStart('v')
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CameraTrapTool-Setup
+          path: installer/*.exe
+
+      - name: Publish release (tags only)
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: installer/*.exe
