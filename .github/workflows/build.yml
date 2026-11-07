@@ -3,7 +3,6 @@ name: Build Windows installer
 on:
   push:
     branches: [main]
-    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -94,10 +93,15 @@ jobs:
         run: |
           python -c "import ctt.gui.main_window, ctt.gui.labeller, ctt.gui.dashboard, ctt.gui.review_grid; print('GUI imports OK')"
 
+      - name: Read version
+        id: ver
+        shell: bash
+        run: echo "version=$(python -c 'import ctt; print(ctt.__version__)')" >> "$GITHUB_OUTPUT"
+
       - name: Build installer with Inno Setup
         shell: pwsh
         run: |
-          $version = "${{ github.ref_type == 'tag' && github.ref_name || '0.1.0' }}".TrimStart('v')
+          $version = "${{ steps.ver.outputs.version }}"
           choco install innosetup -y --no-progress
           & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" "/DAppVersion=$version" installer.iss
 
@@ -106,8 +110,15 @@ jobs:
           name: CameraTrapTool-Setup
           path: installer/*.exe
 
-      - name: Publish release (tags only)
-        if: github.ref_type == 'tag'
+      - name: Publish release (version from ctt/__init__.py)
+        if: github.ref_name == 'main'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: v${{ steps.ver.outputs.version }}
+          name: Camera Trap Tool ${{ steps.ver.outputs.version }}
+          target_commitish: ${{ github.sha }}
+          body: |
+            Download **CameraTrapTool-Setup-${{ steps.ver.outputs.version }}.exe** below and double-click it to install.
+            Built from commit ${{ github.sha }}.
           files: installer/*.exe
+          overwrite_files: true
