@@ -16,6 +16,7 @@ OutputBaseFilename=CameraTrapTool-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=assets\app.ico
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName=Camera Trap Tool
 

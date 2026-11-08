@@ -147,3 +147,26 @@ def test_video_sampling(tmp_path):
     w.release()
     frames = list(sample_video_frames(path, 1.0))
     assert [round(t) for t, _ in frames] == [0, 1, 2, 3]
+
+
+def test_sort_into_subfolders(setup, tmp_path):
+    from ctt import sorting
+
+    con, pid, did, folder = setup
+    processing.scan_deployment(con, did)
+    processing.run_detection(con, did, FakeDetector())
+    processing.build_events(con, did, 60)
+    goat = db.add_species(con, "Goat", "Capra hircus", "Domestic")
+    zebra = db.add_species(con, "Zebra", "", "Ungulates")
+    evs = labels.events_to_label(con, did, 0.2, 0.05)
+    labels.set_event_labels(con, evs[0]["id"], [(goat, 3, "")])      # animal burst, but goats
+    labels.set_event_labels(con, evs[1]["id"], [(zebra, 1, "")])     # uncertain file labelled zebra
+    res = sorting.copy_sorted(con, did)
+    assert res["counts"] == {"Wildlife": 1, "People & livestock": 4, "Empty": 1, "Uncertain": 0}
+    out = folder / "CTT_Sorted"
+    assert (out / "People & livestock" / "a0.jpg").exists()
+    assert (out / "Wildlife" / "u0.jpg").exists()
+    assert (folder / "a0.jpg").exists()                                # originals untouched
+    assert processing.scan_deployment(con, did) == 0                   # copies not re-scanned
+    again = sorting.copy_sorted(con, did)
+    assert again["skipped"] == 6

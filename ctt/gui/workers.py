@@ -87,3 +87,32 @@ class ThumbnailWorker(QThread):
             except Exception:
                 img = QImage()
             self.ready.emit(key, img)
+
+
+class SortWorker(QThread):
+    """Copy files into Wildlife / People & livestock / Empty / Uncertain subfolders."""
+
+    progress = Signal(int, int, str)
+    finished_ok = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, db_path, deployment_id, dest=None):
+        super().__init__()
+        self.db_path, self.deployment_id, self.dest = db_path, deployment_id, dest
+        self._stop = False
+
+    def stop(self):
+        self._stop = True
+
+    def run(self):
+        try:
+            from ctt import sorting
+
+            con = db.connect(self.db_path)
+            res = sorting.copy_sorted(con, self.deployment_id, self.dest,
+                                      progress=lambda d, t, f: self.progress.emit(d, t, f),
+                                      should_stop=lambda: self._stop)
+            con.close()
+            self.finished_ok.emit(res)
+        except Exception as exc:
+            self.failed.emit(str(exc))

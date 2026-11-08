@@ -22,10 +22,12 @@ class StationPage(QWidget):
         self.con = con
         self.station_id = None
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(24, 18, 24, 18)
         self.title = QLabel()
-        self.title.setStyleSheet("font-size: 18px; font-weight: bold")
+        self.title.setObjectName("PageTitle")
         lay.addWidget(self.title)
         self.info = QLabel()
+        self.info.setObjectName("PageSubtitle")
         lay.addWidget(self.info)
         edit = QPushButton("Edit station (name, GPS)…")
         edit.clicked.connect(lambda: self.edit_station.emit(self.station_id))
@@ -33,8 +35,11 @@ class StationPage(QWidget):
         lay.addWidget(edit)
 
         lay.addSpacing(12)
+        dt = QLabel("Deployments")
+        dt.setObjectName("SectionTitle")
+        lay.addWidget(dt)
         lay.addWidget(QLabel(
-            "<b>Deployments</b>: each camera visit to this station, linked to the folder with its photos/videos.<br>"
+            "Each camera visit to this station, linked to the folder with its photos/videos.<br>"
             "Double-click a deployment to open it."
         ))
         self.table = QTableWidget(0, 5)
@@ -43,20 +48,26 @@ class StationPage(QWidget):
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.verticalHeader().setVisible(False)
+        self.table.setAlternatingRowColors(True)
         self.table.cellDoubleClicked.connect(self._open)
         lay.addWidget(self.table, 1)
 
         add = QPushButton("+  Add deployment (choose folder with photos / videos)")
-        add.setStyleSheet("font-size: 14px; font-weight: bold; padding: 10px")
+        add.setObjectName("Primary")
+        add.setMinimumHeight(42)
         add.clicked.connect(lambda: self.add_deployment.emit(self.station_id))
         lay.addWidget(add)
 
     def load(self, station_id):
         self.station_id = station_id
         s = self.con.execute("SELECT * FROM station WHERE id=?", (station_id,)).fetchone()
-        self.title.setText(f"Station: {s['name']}")
-        gps = f"{s['latitude']:.6f}, {s['longitude']:.6f}" if s["latitude"] is not None else "no GPS yet"
-        self.info.setText(f"GPS: {gps}" + (f"   ·   {s['notes']}" if s["notes"] else ""))
+        from ctt.geo import format_latlon
+
+        self.title.setText(s["name"])
+        gps = format_latlon(s["latitude"], s["longitude"]) if s["latitude"] is not None else "no GPS yet – click Edit station"
+        ele = f"  ·  {s['elevation']:.0f} m" if s["elevation"] is not None else ""
+        self.info.setText(f"📍 {gps}{ele}" + (f"   ·   {s['notes']}" if s["notes"] else ""))
         p = self.con.execute("SELECT * FROM project WHERE id=?", (s["project_id"],)).fetchone()
         deps = db.list_deployments(self.con, station_id)
         self.table.setRowCount(len(deps))

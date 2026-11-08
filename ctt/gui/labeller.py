@@ -45,42 +45,96 @@ class ImageView(QLabel):
 
 
 class SpeciesRow(QWidget):
+    """One chosen species with its count and note."""
+
     removed = Signal(object)
 
-    def __init__(self, species, species_id=None, count=1, note=""):
+    def __init__(self, species_row, count=1, note=""):
         super().__init__()
+        self.species_id = species_row["id"]
         lay = QHBoxLayout(self)
-        lay.setContentsMargins(0, 0, 0, 0)
-        self.combo = QComboBox()
-        self.combo.setEditable(True)
-        self.combo.setInsertPolicy(QComboBox.InsertPolicy.NoInsert)
-        self.combo.addItem("— choose species —", None)
-        for s in species:
-            self.combo.addItem(s["common_name"], s["id"])
-        comp = self.combo.completer()
-        comp.setFilterMode(Qt.MatchFlag.MatchContains)
-        comp.setCompletionMode(QCompleter.CompletionMode.PopupCompletion)
-        if species_id:
-            self.combo.setCurrentIndex(max(0, self.combo.findData(species_id)))
+        lay.setContentsMargins(0, 2, 0, 2)
+        name = QLabel(f"<b>{species_row['common_name']}</b>"
+                      + (f"<br><i style='color:#7A7466'>{species_row['scientific_name']}</i>"
+                         if species_row["scientific_name"] else ""))
         self.count = QSpinBox()
         self.count.setRange(1, 999)
         self.count.setValue(count)
         self.count.setPrefix("× ")
+        self.count.setToolTip("Number of individuals")
         self.note = QLineEdit(note)
-        self.note.setPlaceholderText("note (age/sex, behaviour…)")
+        self.note.setPlaceholderText("note: age/sex, behaviour…")
         rm = QPushButton("✖")
-        rm.setFixedWidth(28)
+        rm.setFixedWidth(30)
         rm.setToolTip("Remove this species")
         rm.clicked.connect(lambda: self.removed.emit(self))
-        lay.addWidget(self.combo, 3)
+        lay.addWidget(name, 3)
         lay.addWidget(self.count, 1)
         lay.addWidget(self.note, 3)
         lay.addWidget(rm)
 
     def value(self):
-        idx = self.combo.findText(self.combo.currentText(), Qt.MatchFlag.MatchFixedString)
-        sid = self.combo.itemData(idx) if idx >= 0 else None
-        return (sid, self.count.value(), self.note.text().strip()) if sid else None
+        return (self.species_id, self.count.value(), self.note.text().strip())
+
+
+class SpeciesPicker(QWidget):
+    """Search box + list: recently used species on top. Click to add."""
+
+    picked = Signal(int)
+
+    def __init__(self, con):
+        super().__init__()
+        self.con = con
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.search = QLineEdit()
+        self.search.setObjectName("Search")
+        self.search.setPlaceholderText("🔍  Search species (common or scientific name)…")
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(self.refresh)
+        self.search.returnPressed.connect(self._enter)
+        lay.addWidget(self.search)
+        self.list = QListWidget()
+        self.list.itemClicked.connect(lambda it: self._pick(it))
+        self.list.itemActivated.connect(lambda it: self._pick(it))
+        lay.addWidget(self.list)
+        self.refresh()
+
+    def refresh(self, *_):
+        q = self.search.text().strip().lower()
+        sp = db.list_species(self.con, recent_first=True)
+        self.list.clear()
+        recent_marked = False
+        for s in sp:
+            hay = f"{s['common_name']} {s['scientific_name'] or ''} {s['taxon_group'] or ''}".lower()
+            if q and q not in hay:
+                continue
+            label = s["common_name"]
+            if s["scientific_name"]:
+                label += f"   –  {s['scientific_name']}"
+            if s["last_used_at"] and not q:
+                label = "★  " + label
+                recent_marked = True
+            it = QListWidgetItem(label)
+            it.setData(Qt.ItemDataRole.UserRole, s["id"])
+            if s["taxon_group"]:
+                it.setToolTip(s["taxon_group"])
+            self.list.addItem(it)
+        if not sp:
+            it = QListWidgetItem("Species list is empty – add species via 'Species list' at the top.")
+            it.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.list.addItem(it)
+        self.list.setToolTip("★ = used recently" if recent_marked else "")
+
+    def _enter(self):
+        if self.list.count() >= 1 and self.list.item(0).data(Qt.ItemDataRole.UserRole):
+            self._pick(self.list.item(0))
+
+    def _pick(self, it):
+        sid = it.data(Qt.ItemDataRole.UserRole)
+        if sid:
+            self.picked.emit(sid)
+            self.search.clear()
 
 
 class Labeller(QWidget):
@@ -164,9 +218,12 @@ class Labeller(QWidget):
         scroll.setWidget(rows_w)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         rl.addWidget(scroll, 1)
-        add = QPushButton("+ Add species")
-        add.clicked.connect(lambda: self._add_row())
-        rl.addWidget(add)
+        pick_title = QLabel("Add a species  (★ = used recently)")
+        pick_title.setObjectName("TileNote")
+        rl.addWidget(pick_title)
+        self.picker = SpeciesPicker(self.con)
+        self.picker.picked.connect(self._picked)
+        rl.addWidget(self.picker, 1)
         rl.addWidget(QLabel("Event note"))
         self.event_note = QLineEdit()
         rl.addWidget(self.event_note)
@@ -288,11 +345,24 @@ class Labeller(QWidget):
             if w:
                 w.deleteLater()
 
-    def _add_row(self, species_id=None, count=1, note=""):
-        row = SpeciesRow(db.list_species(self.con), species_id, count, note)
+    def _add_row(self, species_id, count=1, note=""):
+        sp = self.con.execute("SELECT * FROM species WHERE id=?", (species_id,)).fetchone()
+        if sp is None:
+            return None
+        row = SpeciesRow(sp, count, note)
         row.removed.connect(self._remove_row)
         self.rows_box.insertWidget(self.rows_box.count() - 1, row)
         return row
+
+    def _picked(self, species_id):
+        for r in self._rows():
+            if r.species_id == species_id:  # already there: one more individual
+                r.count.setValue(r.count.value() + 1)
+                return
+        self._add_row(species_id)
+
+    def refresh_species(self):
+        self.picker.refresh()
 
     def _remove_row(self, row):
         self.rows_box.removeWidget(row)
@@ -317,20 +387,11 @@ class Labeller(QWidget):
         current = own if self.scope_file.isChecked() else labels.event_labels(self.con, ev["id"])
         for l in current:
             self._add_row(l["species_id"], l["count"], l["note"])
-        if not current:
-            self._add_row()
 
     def _save(self, go_next):
         if not self.events:
             return
         entries = [v for v in (r.value() for r in self._rows()) if v]
-        unknown = [r.combo.currentText() for r in self._rows() if not r.value() and r.combo.currentIndex() != 0
-                   and r.combo.currentText().strip() and r.combo.currentText() != "— choose species —"]
-        if unknown:
-            QMessageBox.warning(self, "Unknown species",
-                                "Not in the species list: " + ", ".join(unknown) +
-                                "\nAdd it via Settings → Species list, or pick from the list.")
-            return
         ev = self.events[self.event_list.currentRow()]
         if self.scope_file.isChecked():
             if self.current_media:
@@ -341,6 +402,7 @@ class Labeller(QWidget):
             ) == QMessageBox.StandardButton.Yes:
                 return
             labels.set_event_labels(self.con, ev["id"], entries, note=self.event_note.text())
+        self.picker.refresh()
         row = self.event_list.currentRow()
         self.reload(keep=True)
         self.changed.emit()

@@ -108,16 +108,49 @@ def default_db_path() -> Path:
     return folder / "cameratraptool.db"
 
 
+# Columns added after version 0.1. Existing databases are upgraded in place.
+MIGRATIONS = {
+    "species": [
+        ("taxon_group", "TEXT DEFAULT ''"),
+        ("last_used_at", "TEXT"),
+    ],
+    "station": [("elevation", "REAL")],
+    "project": [
+        ("photo_path", "TEXT DEFAULT ''"),
+        ("location", "TEXT DEFAULT ''"),
+    ],
+}
+
+# Suggested taxon groups. 'Domestic' and 'Human' count as people & livestock.
+TAXON_GROUPS = [
+    "Primates", "Carnivores", "Ungulates", "Rodents", "Lagomorphs", "Hyraxes",
+    "Elephants", "Other mammals", "Birds", "Reptiles", "Domestic", "Human", "Other",
+]
+DOMESTIC_GROUPS = {"Domestic", "Human"}
+
+
+def _migrate(con):
+    for table, cols in MIGRATIONS.items():
+        have = {r[1] for r in con.execute(f"PRAGMA table_info({table})")}
+        for name, decl in cols:
+            if name not in have:
+                con.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
+    con.commit()
+
+
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
     con = sqlite3.connect(str(path or default_db_path()))
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
+    _migrate(con)
     return con
 
 
 # ---------------------------------------------------------------- projects
-def add_project(con, name, notes=""):
-    cur = con.execute("INSERT INTO project(name, notes) VALUES (?, ?)", (name, notes))
+def add_project(con, name, notes="", photo_path="", location=""):
+    cur = con.execute(
+        "INSERT INTO project(name, notes, photo_path, location) VALUES (?,?,?,?)", (name, notes, photo_path, location)
+    )
     con.commit()
     return cur.lastrowid
 
@@ -140,10 +173,10 @@ def delete_project(con, project_id):
 
 
 # ---------------------------------------------------------------- stations
-def add_station(con, project_id, name, latitude=None, longitude=None, notes=""):
+def add_station(con, project_id, name, latitude=None, longitude=None, notes="", elevation=None):
     cur = con.execute(
-        "INSERT INTO station(project_id, name, latitude, longitude, notes) VALUES (?,?,?,?,?)",
-        (project_id, name, latitude, longitude, notes),
+        "INSERT INTO station(project_id, name, latitude, longitude, notes, elevation) VALUES (?,?,?,?,?,?)",
+        (project_id, name, latitude, longitude, notes, elevation),
     )
     con.commit()
     return cur.lastrowid
@@ -199,24 +232,56 @@ def delete_deployment(con, deployment_id):
 
 
 # ---------------------------------------------------------------- species
-def add_species(con, common_name, scientific_name=""):
+def add_species(con, common_name, scientific_name="", taxon_group=""):
     common_name = common_name.strip()
-    row = con.execute("SELECT id FROM species WHERE common_name=?", (common_name,)).fetchone()
+    if not common_name:
+        raise ValueError("A species needs a common name.")
+    row = con.execute("SELECT id FROM species WHERE common_name=? COLLATE NOCASE", (common_name,)).fetchone()
     if row:
         if scientific_name:
-            con.execute("UPDATE species SET scientific_name=? WHERE id=?", (scientific_name, row["id"]))
-            con.commit()
+            con.execute("UPDATE species SET scientific_name=? WHERE id=?", (scientific_name.strip(), row["id"]))
+        if taxon_group:
+            con.execute("UPDATE species SET taxon_group=? WHERE id=?", (taxon_group.strip(), row["id"]))
+        con.commit()
         return row["id"]
     cur = con.execute(
-        "INSERT INTO species(common_name, scientific_name) VALUES (?,?)",
-        (common_name, scientific_name.strip()),
+        "INSERT INTO species(common_name, scientific_name, taxon_group) VALUES (?,?,?)",
+        (common_name, scientific_name.strip(), (taxon_group or "").strip()),
     )
     con.commit()
     return cur.lastrowid
 
 
-def list_species(con):
-    return con.execute("SELECT * FROM species ORDER BY common_name").fetchall()
+def update_species(con, species_id, **fields):
+    if "common_name" in fields:
+        name = fields["common_name"].strip()
+        if not name:
+            raise ValueError("A species needs a common name.")
+        clash = con.execute(
+            "SELECT id FROM species WHERE common_name=? COLLATE NOCASE AND id<>?", (name, species_id)
+        ).fetchone()
+        if clash:
+            raise ValueError(f"'{name}' is already in the species list.")
+        fields["common_name"] = name
+    _update(con, "species", species_id, fields)
+
+
+def list_species(con, recent_first=False):
+    order = "CASE WHEN last_used_at IS NULL THEN 1 ELSE 0 END, last_used_at DESC, common_name" if recent_first else "common_name"
+    return con.execute(f"SELECT * FROM species ORDER BY {order}").fetchall()
+
+
+def touch_species(con, species_ids):
+    """Remember when species were last used, so they appear at the top of the picker."""
+    import datetime as _dt
+
+    now = _dt.datetime.now().isoformat(sep=" ", timespec="seconds")
+    con.executemany("UPDATE species SET last_used_at=? WHERE id=?", [(now, i) for i in species_ids])
+    con.commit()
+
+
+def species_usage(con, species_id) -> int:
+    return con.execute("SELECT COUNT(*) FROM label WHERE species_id=?", (species_id,)).fetchone()[0]
 
 
 def delete_species(con, species_id):
@@ -230,7 +295,7 @@ def delete_species(con, species_id):
 def import_species_table(con, path) -> int:
     """Import a species list from CSV or Excel.
 
-    Column 1 = common name, optional column 2 = scientific name. A header row is
+    Column 1 = common name, optional column 2 = scientific name, optional column 3 = taxon group. A header row is
     detected and skipped if its first cell is 'common', 'name' or 'species'.
     """
     path = Path(path)
@@ -256,7 +321,7 @@ def import_species_table(con, path) -> int:
             continue
         if i == 0 and r[0].strip().lower() in ("common", "common name", "common_name", "name", "species"):
             continue
-        add_species(con, r[0], r[1] if len(r) > 1 else "")
+        add_species(con, r[0], r[1] if len(r) > 1 else "", r[2] if len(r) > 2 else "")
         n += 1
     return n
 

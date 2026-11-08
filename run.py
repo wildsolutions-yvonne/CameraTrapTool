@@ -46,29 +46,112 @@ def selftest(out_path, sample_image=None):
     step("MegaDetector", detector)
 
     def gui():
+        import datetime as dt
+
+        from PIL import Image
         from PySide6.QtWidgets import QApplication
+
+        from ctt import db, labels, processing
+        from ctt.gui import theme
+        from ctt.gui.dialogs import ProjectDialog, SpeciesDialog, StationDialog
         from ctt.gui.main_window import MainWindow
-        from ctt import db
 
         app = QApplication.instance() or QApplication([])
-        path = os.path.join(tempfile.mkdtemp(), "t.db")
+        app.setStyleSheet(theme.STYLE)
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "t.db")
+        folder = os.path.join(tmp, "DCIM")
+        os.makedirs(folder)
+        t0 = dt.datetime(2026, 3, 1, 6)
+        for i in range(4):
+            im = Image.new("RGB", (64, 48), (200, 200, 200))
+            ex = Image.Exif()
+            ex[0x0132] = (t0 + dt.timedelta(hours=5 * i)).strftime("%Y:%m:%d %H:%M:%S")
+            im.save(os.path.join(folder, f"img{i}.jpg"), exif=ex)
         con = db.connect(path)
-        pid = db.add_project(con, "Test")
-        sid = db.add_station(con, pid, "CT01", -0.5, 37.0)
-        did = db.add_deployment(con, sid, "Dep1", tempfile.mkdtemp())
-        db.add_species(con, "Lion", "Panthera leo")
+        pid = db.add_project(con, "Test", location="Laikipia")
+        sid = db.add_station(con, pid, "CT01", -0.5, 37.0, elevation=1800)
+        did = db.add_deployment(con, sid, "Dep1", folder, "2026-03-01", "2026-03-10")
+        lion = db.add_species(con, "Lion", "Panthera leo", "Carnivores")
+        hy = db.add_species(con, "Spotted hyena", "Crocuta crocuta", "Carnivores")
+        processing.scan_deployment(con, did)
+        con.executemany("UPDATE media SET max_animal=?, max_person=0, max_vehicle=0 WHERE relpath=?",
+                        [(0.9, "img0.jpg"), (0.8, "img1.jpg"), (0.01, "img2.jpg"), (0.1, "img3.jpg")])
+        con.commit()
+        processing.build_events(con, did, 60)
+        evs = labels.events_to_label(con, did, 0.2, 0.05)
+        labels.set_event_labels(con, evs[0]["id"], [(lion, 2, "")])
+        labels.set_event_labels(con, evs[1]["id"], [(hy, 1, "")])
         con.close()
         win = MainWindow(path)
         win.show()
-        for kind, rid in (("project", pid), ("station", sid), ("deployment", did)):
-            win.refresh_tree((kind, rid))
+        app.processEvents()
+        assert len(win.home.cards) == 2, "home page should show 1 project + 'new' card"
+        win.open_project(pid)
+        app.processEvents()
+        page = win.project_page
+        for i in range(page.taxon.count()):
+            page.taxon.setCurrentIndex(i)
+            for k in range(page.charts.kind.count()):
+                page.charts.kind.setCurrentIndex(k)
+                app.processEvents()
+        for i in range(page.tabs.count()):
+            page.tabs.setCurrentIndex(i)
             app.processEvents()
-        win.deployment_page.tabs.setCurrentIndex(1)
+        win._select(("station", sid))
+        app.processEvents()
+        win._select(("deployment", did))
+        app.processEvents()
+        dp = win.deployment_page
+        dp.tabs.setCurrentIndex(1)
+        app.processEvents()
+        dp.labeller.picker.search.setText("hy")
+        app.processEvents()
+        assert dp.labeller.picker.list.count() == 1, "species search should find hyena only"
+        dp.labeller.picker.search.clear()
+        assert "★" in dp.labeller.picker.list.item(0).text(), "recent species should be on top"
+        from ctt.gui.deployment_page import ProgressTracker, fmt_duration
+
+        tr = ProgressTracker()
+        for d in range(1, 5):
+            tr.update(d, 100)
+        assert fmt_duration(3725) == "1 h 02 min"
+        for dlg in (ProjectDialog(win), StationDialog(win, None, []), SpeciesDialog(win, win.con)):
+            dlg.show()
+            app.processEvents()
+            dlg.close()
+        win.go_home()
         app.processEvents()
         win.close()
-        return "window, dashboard, station page, deployment page, labeller opened"
+        return "home, dashboard (all charts/tabs/taxa), station, deployment, labeller search, dialogs"
 
     step("GUI", gui)
+
+    def network():
+        from PySide6.QtCore import QEventLoop, QTimer, QUrl
+        from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QSslSocket
+        from PySide6.QtWidgets import QApplication
+
+        app = QApplication.instance() or QApplication([])
+        out = [f"TLS backends {QSslSocket.availableBackends()}"]
+        nam = QNetworkAccessManager()
+        for url in ("https://tile.openstreetmap.org/10/616/515.png",
+                    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/10/515/616",
+                    "https://api.open-meteo.com/v1/elevation?latitude=0.123&longitude=37.04"):
+            req = QNetworkRequest(QUrl(url))
+            req.setRawHeader(b"User-Agent", b"CameraTrapTool selftest")
+            reply = nam.get(req)
+            loop = QEventLoop()
+            reply.finished.connect(loop.quit)
+            QTimer.singleShot(20000, loop.quit)
+            loop.exec()
+            n = len(bytes(reply.readAll()))
+            if reply.error() != reply.NetworkError.NoError or n < 10:
+                raise RuntimeError(f"{url}: {reply.errorString()} ({n} bytes)")
+            out.append(f"{url.split('/')[2]} {n} B")
+        return "; ".join(out)
+
+    step("Map tiles + elevation over the network", network)
     with open(out_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + ("\nALL OK\n" if ok else "\nSELFTEST FAILED\n"))
     sys.exit(0 if ok else 1)
@@ -143,9 +226,23 @@ def main():
 
     from ctt.gui.main_window import MainWindow
 
+    from PySide6.QtGui import QIcon
+
+    from ctt.gui import theme
+    from ctt.gui.assets import asset_path
+
+    if sys.platform == "win32":  # own taskbar icon instead of the Python one
+        try:
+            import ctypes
+
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("WildSolutions.CameraTrapTool")
+        except Exception:
+            pass
     app = QApplication(sys.argv)
     app.setApplicationName("Camera Trap Tool")
     app.setStyle("Fusion")
+    app.setStyleSheet(theme.STYLE)
+    app.setWindowIcon(QIcon(str(asset_path("app.ico"))))
     win = MainWindow()
     win.show()
     logging.info("Window shown")

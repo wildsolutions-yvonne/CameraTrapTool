@@ -41,6 +41,7 @@ def set_event_labels(con, event_id, entries, note=None):
     if note is not None:
         con.execute("UPDATE event SET note=? WHERE id=?", (note, event_id))
     con.commit()
+    _touch(con, entries)
 
 
 def set_media_labels(con, media_id, entries):
@@ -53,6 +54,14 @@ def set_media_labels(con, media_id, entries):
             (ev, media_id, species_id, int(count), lnote or ""),
         )
     con.commit()
+    _touch(con, entries)
+
+
+def _touch(con, entries):
+    from .db import touch_species
+
+    if entries:
+        touch_species(con, [e[0] for e in entries])
 
 
 def set_manual_group(con, media_ids, group):
