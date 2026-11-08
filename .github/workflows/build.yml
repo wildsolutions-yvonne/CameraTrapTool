@@ -69,7 +69,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt pytest pyinstaller==6.10.0
+          pip install -r requirements.txt pytest "pyinstaller>=6.16"
 
       - name: Run tests
         run: python -m pytest -q tests
@@ -88,10 +88,12 @@ jobs:
           --collect-binaries onnxruntime
           --exclude-module tkinter
 
-      - name: Smoke test (start app, check it imports)
-        shell: bash
+      - name: Self-test the packed app (opens window offscreen, runs detector)
+        shell: pwsh
         run: |
-          python -c "import ctt.gui.main_window, ctt.gui.labeller, ctt.gui.dashboard, ctt.gui.review_grid; print('GUI imports OK')"
+          $p = Start-Process -FilePath "dist\CameraTrapTool\CameraTrapTool.exe" -ArgumentList "--selftest","$PWD\selftest.txt","$PWD\zidane.jpg" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { throw "Packed app self-test failed (exit $($p.ExitCode))" }
 
       - name: Read version
         id: ver
