@@ -57,13 +57,24 @@ class MapWidget(QWidget):
         self.btn.setEnabled(bool(points))
 
     def _open_browser(self):
-        import tempfile
-        import webbrowser
+        import logging
+        import os
         from pathlib import Path
 
-        path = Path(tempfile.gettempdir()) / "cameratraptool_map.html"
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        folder = Path(os.environ.get("APPDATA") or Path.home()) / "CameraTrapTool"
+        folder.mkdir(parents=True, exist_ok=True)
+        path = folder / "station_map.html"
         path.write_text(LEAFLET_HTML.replace("__POINTS__", json.dumps(self.points)), encoding="utf-8")
-        webbrowser.open(path.as_uri())
+        logging.info("Opening map %s", path)
+        ok = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+        if not ok:
+            try:
+                os.startfile(str(path))  # Windows fallback
+            except Exception as exc:
+                QMessageBox.warning(self, "Map", f"Could not open the web browser.\nThe map was saved as:\n{path}\n\n{exc}")
 
 
 class _ScatterMap(QWidget):
@@ -87,10 +98,19 @@ class _ScatterMap(QWidget):
         if not points:
             ax.text(0.5, 0.5, "No stations with GPS yet", ha="center", va="center", transform=ax.transAxes)
             ax.set_axis_off()
+        from matplotlib.ticker import MaxNLocator, FormatStrFormatter
+
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
         ax.grid(True, alpha=0.3)
         ax.set_aspect("equal", adjustable="datalim")
+        for axis in (ax.xaxis, ax.yaxis):
+            axis.set_major_locator(MaxNLocator(4))
+            axis.set_major_formatter(FormatStrFormatter("%.3f"))
+        if len(points) == 1:  # zoom to about 2 km around a single station
+            p = points[0]
+            ax.set_xlim(p["lon"] - 0.01, p["lon"] + 0.01)
+            ax.set_ylim(p["lat"] - 0.01, p["lat"] + 0.01)
         self.canvas.draw()
 
 
@@ -217,7 +237,7 @@ class ProjectPage(QWidget):
         rl.addWidget(exp)
         split.addWidget(right)
         split.setSizes([500, 600])
-        lay.addWidget(split)
+        lay.addWidget(split, 1)
 
     def load(self, project_id):
         self.project_id = project_id

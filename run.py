@@ -60,13 +60,13 @@ def selftest(out_path, sample_image=None):
         con.close()
         win = MainWindow(path)
         win.show()
-        for kind, rid in (("project", pid), ("deployment", did)):
+        for kind, rid in (("project", pid), ("station", sid), ("deployment", did)):
             win.refresh_tree((kind, rid))
             app.processEvents()
         win.deployment_page.tabs.setCurrentIndex(1)
         app.processEvents()
         win.close()
-        return "window, dashboard, deployment page, labeller opened"
+        return "window, dashboard, station page, deployment page, labeller opened"
 
     step("GUI", gui)
     with open(out_path, "w", encoding="utf-8") as f:

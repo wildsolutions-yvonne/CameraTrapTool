@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
 from ctt import __version__, db
 from .dashboard import ProjectPage
 from .deployment_page import DeploymentPage
+from .station_page import StationPage
 from .dialogs import DeploymentDialog, ProjectDialog, SpeciesDialog, StationDialog
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -83,9 +84,13 @@ class MainWindow(QMainWindow):
         self.welcome.setMargin(20)
         self.project_page = ProjectPage(self.con)
         self.deployment_page = DeploymentPage(self.con, self.db_path)
+        self.station_page = StationPage(self.con)
+        self.station_page.add_deployment.connect(self._add_deployment_to)
+        self.station_page.open_deployment.connect(lambda did: self.refresh_tree(("deployment", did)))
+        self.station_page.edit_station.connect(lambda sid: self._edit(self._find(("station", sid))))
         self.project_page.changed.connect(self._refresh_tree_keep)
         self.deployment_page.changed.connect(self._refresh_tree_keep)
-        for w in (self.welcome, self.project_page, self.deployment_page):
+        for w in (self.welcome, self.project_page, self.station_page, self.deployment_page):
             self.stack.addWidget(w)
         split.addWidget(self.stack)
         split.setSizes([300, 1200])
@@ -122,6 +127,7 @@ class MainWindow(QMainWindow):
             self.tree.setCurrentItem(target)
         elif self.tree.topLevelItemCount() == 0:
             self.stack.setCurrentWidget(self.welcome)
+        self._update_add_label(self.tree.currentItem())
 
     def _refresh_tree_keep(self):
         it = self.tree.currentItem()
@@ -147,6 +153,7 @@ class MainWindow(QMainWindow):
         return out
 
     def _selected(self, item, _prev=None):
+        self._update_add_label(item)
         if not item:
             self.stack.setCurrentWidget(self.welcome)
             return
@@ -157,11 +164,31 @@ class MainWindow(QMainWindow):
         if kind == "deployment":
             self.deployment_page.load(rid)
             self.stack.setCurrentWidget(self.deployment_page)
+        elif kind == "station":
+            self.station_page.load(rid)
+            self.stack.setCurrentWidget(self.station_page)
         else:
-            pid = rid if kind == "project" else self.con.execute(
-                "SELECT project_id FROM station WHERE id=?", (rid,)).fetchone()[0]
-            self.project_page.load(pid)
+            self.project_page.load(rid)
             self.stack.setCurrentWidget(self.project_page)
+
+    def _update_add_label(self, item):
+        kind = item.data(0, ROLE)[0] if item else None
+        self.b_add.setText({
+            None: "+ Add project", "project": "+ Add station",
+            "station": "+ Add deployment", "deployment": "+ Add deployment",
+        }[kind])
+
+    def _find(self, key):
+        for item in self._all_items():
+            if item.data(0, ROLE) == key:
+                return item
+        return None
+
+    def _add_deployment_to(self, station_id):
+        dlg = DeploymentDialog(self)
+        if dlg.exec():
+            did = db.add_deployment(self.con, station_id, **dlg.values())
+            self.refresh_tree(("deployment", did))
 
     def _context_menu(self, pos):
         it = self.tree.itemAt(pos)
