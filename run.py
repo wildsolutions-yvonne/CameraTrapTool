@@ -61,7 +61,7 @@ def selftest(out_path, sample_image=None):
         from ctt.gui.main_window import MainWindow
 
         app = QApplication.instance() or QApplication([])
-        app.setStyleSheet(theme.STYLE)
+        app.setStyleSheet(theme.style_sheet())
         tmp = tempfile.mkdtemp()
         path = os.path.join(tmp, "t.db")
         folder = os.path.join(tmp, "DCIM")
@@ -287,7 +287,7 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Camera Trap Tool")
     app.setStyle("Fusion")
-    app.setStyleSheet(theme.STYLE)
+    app.setStyleSheet(theme.style_sheet())
     app.setWindowIcon(QIcon(str(asset_path("app.ico"))))
     win = MainWindow()
     win.show()

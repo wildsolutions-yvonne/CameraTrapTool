@@ -98,7 +98,7 @@ def export_project(con, project_id, path, include_empty=False) -> int:
 
 DEFINITIONS = [
     ("Record", "One labelled event (photos/videos closer in time than the project's event gap) at one station, per species."),
-    ("Trap period", "Deployment start date 00:00 to end date 24:00. If the last file is >24 h before the end date the camera probably stopped early; the period then ends at the last file (column 'stopped_early')."),
+    ("Trap period", "Deployment start date 00:00 to end date 24:00. If the silence between the last file and the end date is longer than 24 h and more than twice the longest earlier quiet period, the camera probably stopped early; the period then ends at the last file (column 'Stopped early')."),
     ("Trap-nights", "Trap hours / 24."),
     ("RAI", "Relative abundance index = records / trap-nights x 100."),
     ("Naive occupancy", "Stations with at least one record / stations with trap effort. Not corrected for detection probability."),

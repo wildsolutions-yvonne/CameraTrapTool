@@ -62,6 +62,23 @@ QPushButton#Flat {{ border: none; background: transparent; color: {OLIVE}; text-
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit, QTextEdit {{
     background: white; border: 1px solid {LINE}; border-radius: 5px; padding: 4px 6px; }}
 QLineEdit:focus, QComboBox:focus, QSpinBox:focus, QDoubleSpinBox:focus, QTextEdit:focus {{ border-color: {OLIVE}; }}
+QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit {{ padding-right: 18px; }}
+QSpinBox::up-button, QDoubleSpinBox::up-button, QDateEdit::up-button, QDateTimeEdit::up-button {{
+    subcontrol-origin: border; subcontrol-position: top right; width: 18px; border: none;
+    border-left: 1px solid {LINE}; border-top-right-radius: 5px; background: #FAF8F3; }}
+QSpinBox::down-button, QDoubleSpinBox::down-button, QDateEdit::down-button, QDateTimeEdit::down-button {{
+    subcontrol-origin: border; subcontrol-position: bottom right; width: 18px; border: none;
+    border-left: 1px solid {LINE}; border-bottom-right-radius: 5px; background: #FAF8F3; }}
+QSpinBox::up-button:hover, QDoubleSpinBox::up-button:hover, QSpinBox::down-button:hover,
+QDoubleSpinBox::down-button:hover {{ background: {OLIVE_LIGHT}; }}
+QSpinBox::up-arrow, QDoubleSpinBox::up-arrow, QDateEdit::up-arrow, QDateTimeEdit::up-arrow {{
+    image: url(__ASSETS__/arrow_up.png); width: 9px; height: 9px; }}
+QSpinBox::down-arrow, QDoubleSpinBox::down-arrow, QDateEdit::down-arrow, QDateTimeEdit::down-arrow,
+QComboBox::down-arrow {{ image: url(__ASSETS__/arrow_down.png); width: 9px; height: 9px; }}
+QComboBox::drop-down {{ border: none; width: 22px; }}
+QDateEdit::drop-down, QDateTimeEdit::drop-down {{ border: none; width: 22px; }}
+QPushButton::menu-indicator {{ image: none; width: 0; }}
+#HomeInner {{ background: {SAND}; }}
 QLineEdit#Search {{ padding: 7px 10px; font-size: 11pt; border-radius: 16px; }}
 
 QTabWidget::pane {{ border: 1px solid {LINE}; border-radius: 8px; background: {CARD}; top: -1px; }}
@@ -86,6 +103,13 @@ QMenuBar::item:selected {{ background: {OLIVE}; }}
 QScrollArea {{ border: none; background: transparent; }}
 QToolTip {{ background: {TEXT}; color: white; border: none; padding: 4px; }}
 """
+
+
+def style_sheet() -> str:
+    """The style sheet with the path to the bundled arrow images filled in."""
+    from .assets import asset_path
+
+    return STYLE.replace("__ASSETS__", asset_path("x").parent.as_posix())
 
 
 def apply_matplotlib_style():

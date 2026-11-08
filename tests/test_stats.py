@@ -116,3 +116,16 @@ def test_excel_and_shapefiles(proj, tmp_path):
     r = pyshp.Reader(str(tmp_path / "shp" / "Plains_zebra_stations"))
     assert r.shapeType == pyshp.POINT and len(r) == 3
     assert r.record(0)["STATION"] == "A" and tuple(r.shape(0).points[0]) == (37.0, 0.1)
+
+
+def test_quiet_camera_not_called_stopped(tmp_path):
+    """A camera with regular multi-day quiet periods is not 'stopped early' by a quiet end."""
+    con = db.connect(tmp_path / "q.db")
+    pid = db.add_project(con, "Q")
+    s = db.add_station(con, pid, "S", 0, 37)
+    d = db.add_deployment(con, s, "D", tmp_path, "2026-03-01", "2026-03-20")
+    for day in (1, 6, 11, 16):          # a photo every 5 days, nothing after 16 March
+        _media(con, d, f"{day}.jpg", dt.datetime(2026, 3, day, 12))
+    con.commit()
+    e = stats.project_stats(con, pid).effort[0]
+    assert not e.stopped_early and e.trap_nights == pytest.approx(20)

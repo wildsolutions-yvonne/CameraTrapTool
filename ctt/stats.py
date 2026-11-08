@@ -4,9 +4,10 @@ Definitions (also shown in the app):
 - Record: one labelled *event* (photos/videos closer in time than the project's
   event gap) at one station, per species.
 - Trap period of a deployment: from its start date (00:00) to its end date (24:00).
-  Uptime check: if the last file is more than 24 h before the end date, the camera
-  probably stopped early (full card, flat battery, damage) and the period ends at
-  the last file instead. Without dates, first-to-last file is used.
+  Uptime check: if the time between the last file and the end date is more than 24 h
+  AND more than twice the longest quiet period earlier in the deployment, the camera
+  probably stopped early (full card, flat battery, damage) and the period ends at the
+  last file instead. Without dates, first-to-last file is used.
 - Trap-nights = trap hours / 24.
 - RAI (relative abundance index) = records / trap-nights x 100.
 - Naive occupancy = stations with >= 1 record / stations with trap effort.
@@ -231,8 +232,20 @@ def deployment_effort(con, dep) -> DeploymentEffort:
     nominal = _date(dep["end_date"])
     nominal = nominal + dt.timedelta(days=1) if nominal else last
     stop, early = nominal, False
-    if last and nominal and last < nominal - dt.timedelta(hours=24) and (start is None or last > start):
-        stop, early = last, True
+    if last and nominal and (start is None or last > start):
+        # Only call it "stopped early" if the silence at the end is clearly longer than the
+        # camera's normal quiet periods: > 24 h AND > 2x the longest gap between earlier files.
+        stamps = sorted(
+            t for t in (corrected_time(r[0], off) for r in con.execute(
+                "SELECT taken_at FROM media WHERE deployment_id=? AND taken_at IS NOT NULL", (dep["id"],)))
+            if t is not None
+        )
+        longest = max((b - a for a, b in zip(stamps, stamps[1:])), default=dt.timedelta(0))
+        if start and stamps:
+            longest = max(longest, stamps[0] - start)
+        tail = nominal - last
+        if tail > dt.timedelta(hours=24) and tail > 2 * longest:
+            stop, early = last, True
     hours = max(0.0, (stop - start).total_seconds() / 3600) if start and stop else 0.0
     return DeploymentEffort(dep["id"], dep["station_id"], dep["name"], start, stop, nominal, first, last, early, hours)
 
