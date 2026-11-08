@@ -47,10 +47,6 @@ def selftest(out_path, sample_image=None):
 
     def gui():
         from PySide6.QtWidgets import QApplication
-        try:
-            import PySide6.QtWebEngineWidgets  # noqa: F401
-        except Exception:
-            pass
         from ctt.gui.main_window import MainWindow
         from ctt import db
 
@@ -78,16 +74,73 @@ def selftest(out_path, sample_image=None):
     sys.exit(0 if ok else 1)
 
 
+def log_dir():
+    import os
+    from pathlib import Path
+
+    d = Path(os.environ.get("APPDATA") or Path.home()) / "CameraTrapTool" / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def setup_logging():
+    """Write everything that goes wrong to %APPDATA%\\CameraTrapTool\\logs."""
+    import datetime as dt
+    import faulthandler
+    import logging
+    import threading
+    import traceback
+
+    d = log_dir()
+    logfile = d / "cameratraptool.log"
+    logging.basicConfig(
+        filename=str(logfile), level=logging.INFO, encoding="utf-8",
+        format="%(asctime)s %(levelname)s %(message)s",
+    )
+    # Hard crashes (inside C libraries) are written here by faulthandler.
+    crash = open(d / "crash.log", "a", encoding="utf-8")
+    crash.write(f"\n=== started {dt.datetime.now():%Y-%m-%d %H:%M:%S} ===\n")
+    crash.flush()
+    faulthandler.enable(crash, all_threads=True)
+    # A windowed app has no console: give Python a place to print.
+    if sys.stdout is None:
+        sys.stdout = open(d / "stdout.log", "a", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = crash
+
+    def excepthook(etype, value, tb):
+        text = "".join(traceback.format_exception(etype, value, tb))
+        logging.error("Unhandled error:\n%s", text)
+        try:
+            from PySide6.QtWidgets import QApplication, QMessageBox
+
+            if QApplication.instance():
+                QMessageBox.critical(
+                    None, "Camera Trap Tool - error",
+                    f"Something went wrong:\n\n{value}\n\nDetails were saved in:\n{logfile}\n\n"
+                    "Your data is safe. Please send that file to the developer.",
+                )
+        except Exception:
+            pass
+
+    sys.excepthook = excepthook
+    threading.excepthook = lambda a: excepthook(a.exc_type, a.exc_value, a.exc_traceback)
+    import platform
+
+    from ctt import __version__
+
+    logging.info("Camera Trap Tool %s on %s, Python %s", __version__, platform.platform(), platform.python_version())
+    return logfile
+
+
 def main():
     if len(sys.argv) >= 3 and sys.argv[1] == "--selftest":
         selftest(sys.argv[2], sys.argv[3] if len(sys.argv) > 3 else None)
+    setup_logging()
+    import logging
+
     from PySide6.QtWidgets import QApplication
 
-    # QtWebEngine (station map) must be imported before the QApplication exists.
-    try:
-        import PySide6.QtWebEngineWidgets  # noqa: F401
-    except Exception:
-        pass
     from ctt.gui.main_window import MainWindow
 
     app = QApplication(sys.argv)
@@ -95,7 +148,10 @@ def main():
     app.setStyle("Fusion")
     win = MainWindow()
     win.show()
-    sys.exit(app.exec())
+    logging.info("Window shown")
+    code = app.exec()
+    logging.info("Closed normally (code %s)", code)
+    sys.exit(code)
 
 
 if __name__ == "__main__":

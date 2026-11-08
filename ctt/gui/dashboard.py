@@ -37,27 +37,33 @@ if (typeof L === 'undefined') {
 
 
 class MapWidget(QWidget):
+    """Station positions drawn in the window, plus a button for an interactive
+    OpenStreetMap in the normal web browser (needs internet)."""
+
     def __init__(self):
         super().__init__()
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        try:
-            from PySide6.QtWebEngineWidgets import QWebEngineView
-
-            self.view = QWebEngineView()
-            self.web = True
-        except Exception:
-            self.view = _ScatterMap()
-            self.web = False
+        self.view = _ScatterMap()
         lay.addWidget(self.view)
+        self.btn = QPushButton("Open interactive map in web browser")
+        self.btn.clicked.connect(self._open_browser)
+        lay.addWidget(self.btn)
+        self.points = []
 
     def show_points(self, points):
-        if self.web:
-            from PySide6.QtCore import QUrl
+        self.points = points
+        self.view.plot(points)
+        self.btn.setEnabled(bool(points))
 
-            self.view.setHtml(LEAFLET_HTML.replace("__POINTS__", json.dumps(points)), QUrl("https://localhost/"))
-        else:
-            self.view.plot(points)
+    def _open_browser(self):
+        import tempfile
+        import webbrowser
+        from pathlib import Path
+
+        path = Path(tempfile.gettempdir()) / "cameratraptool_map.html"
+        path.write_text(LEAFLET_HTML.replace("__POINTS__", json.dumps(self.points)), encoding="utf-8")
+        webbrowser.open(path.as_uri())
 
 
 class _ScatterMap(QWidget):
@@ -78,8 +84,12 @@ class _ScatterMap(QWidget):
         for p in points:
             ax.plot(p["lon"], p["lat"], "o", color="#2e7d32")
             ax.annotate(p["name"], (p["lon"], p["lat"]), xytext=(4, 4), textcoords="offset points")
+        if not points:
+            ax.text(0.5, 0.5, "No stations with GPS yet", ha="center", va="center", transform=ax.transAxes)
+            ax.set_axis_off()
         ax.set_xlabel("Longitude")
         ax.set_ylabel("Latitude")
+        ax.grid(True, alpha=0.3)
         ax.set_aspect("equal", adjustable="datalim")
         self.canvas.draw()
 

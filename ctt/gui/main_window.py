@@ -39,6 +39,9 @@ class MainWindow(QMainWindow):
         sp.triggered.connect(lambda: SpeciesDialog(self, self.con).exec())
         s.addAction(sp)
         h = menu.addMenu("&Help")
+        lg = QAction("Open log folder", self)
+        lg.triggered.connect(self._open_logs)
+        h.addAction(lg)
         ab = QAction("About", self)
         ab.triggered.connect(self._about)
         h.addAction(ab)
@@ -148,6 +151,9 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self.welcome)
             return
         kind, rid = item.data(0, ROLE)
+        import logging
+
+        logging.info("Open %s %s", kind, rid)
         if kind == "deployment":
             self.deployment_page.load(rid)
             self.stack.setCurrentWidget(self.deployment_page)
@@ -244,6 +250,14 @@ class MainWindow(QMainWindow):
             return
         {"project": db.delete_project, "station": db.delete_station, "deployment": db.delete_deployment}[kind](self.con, rid)
         self.refresh_tree()
+
+    def _open_logs(self):
+        import os
+        from pathlib import Path
+
+        from .util import open_file
+
+        open_file(Path(os.environ.get("APPDATA") or Path.home()) / "CameraTrapTool" / "logs")
 
     def _about(self):
         QMessageBox.about(
