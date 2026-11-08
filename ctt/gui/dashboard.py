@@ -433,7 +433,7 @@ class ProjectPage(QWidget):
         mw = QWidget()
         ml = QVBoxLayout(mw)
         self.map = MapWidget()
-        self.map.canvas.marker_clicked.connect(self.open_station)
+        self.map.canvas.marker_clicked.connect(lambda key: self.open_station.emit(int(key)))
         ml.addWidget(self.map, 1)
         self.map_note = QLabel()
         self.map_note.setObjectName("TileNote")
