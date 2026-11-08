@@ -83,32 +83,68 @@ def selftest(out_path, sample_image=None):
         labels.set_event_labels(con, evs[0]["id"], [(lion, 2, "")])
         labels.set_event_labels(con, evs[1]["id"], [(hy, 1, "")])
         con.close()
+        shots = os.environ.get("CTT_SCREENSHOTS")
+
+        def shot(widget, name, wait_ms=0):
+            if not shots:
+                return
+            if wait_ms:
+                from PySide6.QtCore import QEventLoop, QTimer
+
+                loop = QEventLoop()
+                QTimer.singleShot(wait_ms, loop.quit)
+                loop.exec()
+            app.processEvents()
+            os.makedirs(shots, exist_ok=True)
+            widget.grab().save(os.path.join(shots, f"{name}.png"))
+
+        con = db.connect(path)
+        db.update_project(con, pid, notes="Primate camera trap survey")
+        sid2 = db.add_station(con, pid, "CT02", -0.49, 37.03, elevation=1750)
+        db.add_project(con, "Sibiloi 2026", location="Turkana, Kenya")
+        for name, sci, grp in (("Olive baboon", "Papio anubis", "Primates"), ("Goat", "Capra hircus", "Domestic"),
+                               ("Kirk's dik-dik", "Madoqua kirkii", "Ungulates")):
+            db.add_species(con, name, sci, grp)
+        con.close()
         win = MainWindow(path)
+        win.resize(1500, 920)
         win.show()
         app.processEvents()
-        assert len(win.home.cards) == 2, "home page should show 1 project + 'new' card"
+        shot(win, "1_home")
+        assert len(win.home.cards) == 3, "home page should show 1 project + 'new' card"
         win.open_project(pid)
         app.processEvents()
         page = win.project_page
+        shot(win, "2_dashboard_map", 6000)
         for i in range(page.taxon.count()):
             page.taxon.setCurrentIndex(i)
             for k in range(page.charts.kind.count()):
                 page.charts.kind.setCurrentIndex(k)
                 app.processEvents()
+        page.taxon.setCurrentIndex(0)
+        page.tabs.setCurrentIndex(1)
+        page.charts.kind.setCurrentText("Activity overlap of two species")
+        shot(win, "3_dashboard_chart")
         for i in range(page.tabs.count()):
             page.tabs.setCurrentIndex(i)
             app.processEvents()
+            if i == 2:
+                shot(win, "4_dashboard_stations")
         win._select(("station", sid))
         app.processEvents()
+        shot(win, "5_station")
         win._select(("deployment", did))
         app.processEvents()
         dp = win.deployment_page
+        shot(win, "6_deployment_grid", 1500)
         dp.tabs.setCurrentIndex(1)
         app.processEvents()
         dp.labeller.picker.search.setText("hy")
         app.processEvents()
         assert dp.labeller.picker.list.count() == 1, "species search should find hyena only"
         dp.labeller.picker.search.clear()
+        app.processEvents()
+        shot(win, "7_labeller", 1500)
         assert "★" in dp.labeller.picker.list.item(0).text(), "recent species should be on top"
         from ctt.gui.deployment_page import ProgressTracker, fmt_duration
 
@@ -116,9 +152,15 @@ def selftest(out_path, sample_image=None):
         for d in range(1, 5):
             tr.update(d, 100)
         assert fmt_duration(3725) == "1 h 02 min"
-        for dlg in (ProjectDialog(win), StationDialog(win, None, []), SpeciesDialog(win, win.con)):
+        con = db.connect(path)
+        st_row = con.execute("SELECT * FROM station WHERE id=?", (sid,)).fetchone()
+        others = db.list_stations(con, pid)
+        for name, dlg in (("8_project_dialog", ProjectDialog(win)),
+                          ("9_station_dialog", StationDialog(win, st_row, others)),
+                          ("10_species_list", SpeciesDialog(win, win.con))):
             dlg.show()
             app.processEvents()
+            shot(dlg, name, 5000 if "station" in name else 0)
             dlg.close()
         win.go_home()
         app.processEvents()

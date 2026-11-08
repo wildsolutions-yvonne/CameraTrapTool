@@ -100,9 +100,16 @@ jobs:
       - name: Self-test the packed app (opens window offscreen, runs detector)
         shell: pwsh
         run: |
+          $env:CTT_SCREENSHOTS = "$PWD\screenshots"
           $p = Start-Process -FilePath "dist\CameraTrapTool\CameraTrapTool.exe" -ArgumentList "--selftest","$PWD\selftest.txt","$PWD\zidane.jpg" -Wait -PassThru
           Get-Content selftest.txt
           if ($p.ExitCode -ne 0) { throw "Packed app self-test failed (exit $($p.ExitCode))" }
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: screenshots
+          path: screenshots/
 
       - name: Read version
         id: ver
