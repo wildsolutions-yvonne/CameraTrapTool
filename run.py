@@ -21,6 +21,10 @@ def selftest(out_path, sample_image=None):
             lines.append(f"FAIL {name}\n{traceback.format_exc()}")
 
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    # the offscreen platform has no fonts of its own: point it at the Windows fonts
+    windir = os.environ.get("WINDIR")
+    if windir and os.path.isdir(os.path.join(windir, "Fonts")):
+        os.environ.setdefault("QT_QPA_FONTDIR", os.path.join(windir, "Fonts"))
     step("numpy", lambda: __import__("numpy").__version__)
     step("opencv", lambda: __import__("cv2").__version__)
     step("onnxruntime", lambda: __import__("onnxruntime").get_available_providers())

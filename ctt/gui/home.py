@@ -184,24 +184,24 @@ class HomePage(QWidget):
         t.setObjectName("PageTitle")
         sub = QLabel("Find the empty camera trap files, label what's left, and see the results per station.")
         sub.setObjectName("PageSubtitle")
-        txt.addStretch()
+        txt.setSpacing(2)
         txt.addWidget(t)
         txt.addWidget(sub)
-        txt.addStretch()
         hero.addLayout(txt, 1)
         newb = QPushButton("+  New project")
         newb.setObjectName("Primary")
         newb.clicked.connect(self.new_project)
         hero.addWidget(newb, 0, Qt.AlignmentFlag.AlignVCenter)
         self.lay.addLayout(hero)
-        self.lay.addSpacing(20)
+        self.lay.addSpacing(24)
 
         self.grid_host = QWidget()
+        self.grid_host.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum)
         self.grid = QGridLayout(self.grid_host)
         self.grid.setSpacing(22)
         self.grid.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
         self.lay.addWidget(self.grid_host)
-        self.lay.addStretch()
+        self.lay.addStretch(100)
         self._cols = 0
 
     def reload(self):
