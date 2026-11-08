@@ -115,4 +115,4 @@ def test_excel_and_shapefiles(proj, tmp_path):
     pyshp = pytest.importorskip("shapefile")
     r = pyshp.Reader(str(tmp_path / "shp" / "Plains_zebra_stations"))
     assert r.shapeType == pyshp.POINT and len(r) == 3
-    assert r.record(0)["STATION"] == "A" and r.shape(0).points[0] == [37.0, 0.1]
+    assert r.record(0)["STATION"] == "A" and tuple(r.shape(0).points[0]) == (37.0, 0.1)
