@@ -111,6 +111,23 @@ jobs:
           name: screenshots
           path: screenshots/
 
+      - name: Publish screenshots to the 'screenshots' branch (preview builds)
+        if: always() && github.ref_name != 'main'
+        shell: bash
+        run: |
+          [ -d screenshots ] || exit 0
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+          mkdir -p /tmp/shots && cp screenshots/*.png /tmp/shots/
+          git fetch origin screenshots || true
+          git checkout --orphan shots-tmp
+          git rm -rf --cached . >/dev/null
+          rm -rf ./* .github
+          cp /tmp/shots/*.png .
+          git add *.png
+          git commit -m "Screenshots from ${{ github.sha }}"
+          git push -f origin shots-tmp:screenshots
+
       - name: Read version
         id: ver
         shell: bash
