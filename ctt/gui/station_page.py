@@ -43,7 +43,7 @@ class StationPage(QWidget):
             "Double-click a deployment to open it."
         ))
         self.table = QTableWidget(0, 5)
-        self.table.setHorizontalHeaderLabels(["Deployment", "Dates", "Folder", "Files", "Status"])
+        self.table.setHorizontalHeaderLabels(["Deployment", "Start → end", "Folder", "Files", "Status"])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -53,7 +53,10 @@ class StationPage(QWidget):
         self.table.cellDoubleClicked.connect(self._open)
         lay.addWidget(self.table, 1)
 
-        add = QPushButton("+  Add deployment (choose folder with photos / videos)")
+        add = QPushButton("Add deployment (choose folder with photos / videos)")
+        from .icons import icon
+
+        add.setIcon(icon("camera", "#FFFFFF", 20))
         add.setObjectName("Primary")
         add.setMinimumHeight(42)
         add.clicked.connect(lambda: self.add_deployment.emit(self.station_id))
@@ -67,7 +70,7 @@ class StationPage(QWidget):
         self.title.setText(s["name"])
         gps = format_latlon(s["latitude"], s["longitude"]) if s["latitude"] is not None else "no GPS yet – click Edit station"
         ele = f"  ·  {s['elevation']:.0f} m" if s["elevation"] is not None else ""
-        self.info.setText(f"📍 {gps}{ele}" + (f"   ·   {s['notes']}" if s["notes"] else ""))
+        self.info.setText(f"{gps}{ele}" + (f"   ·   {s['notes']}" if s["notes"] else ""))
         p = self.con.execute("SELECT * FROM project WHERE id=?", (s["project_id"],)).fetchone()
         deps = db.list_deployments(self.con, station_id)
         self.table.setRowCount(len(deps))
@@ -82,7 +85,9 @@ class StationPage(QWidget):
                 status = "Partly processed"
             else:
                 status = "Not processed yet"
-            vals = [d["name"], f"{d['start_date']} → {d['end_date']}", d["folder"], str(n), status]
+            start, end, src = db.deployment_period(self.con, d)
+            when = (f"{start:%Y-%m-%d %H:%M} → {end:%Y-%m-%d %H:%M}" if start and end else "after processing")
+            vals = [d["name"], when, d["folder"], str(n), status]
             for j, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 it.setData(Qt.ItemDataRole.UserRole, d["id"])

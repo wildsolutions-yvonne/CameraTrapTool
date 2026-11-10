@@ -3,11 +3,11 @@
 Definitions (also shown in the app):
 - Record: one labelled *event* (photos/videos closer in time than the project's
   event gap) at one station, per species.
-- Trap period of a deployment: from its start date (00:00) to its end date (24:00).
-  Uptime check: if the time between the last file and the end date is more than 24 h
-  AND more than twice the longest quiet period earlier in the deployment, the camera
-  probably stopped early (full card, flat battery, damage) and the period ends at the
-  last file instead. Without dates, first-to-last file is used.
+- Trap period of a deployment: from the first to the last file (default), or, if the
+  dates were typed in by hand, from the start date (00:00) to the end date (24:00).
+  Uptime check (hand-typed dates only): if the time between the last file and the end
+  date is more than 24 h AND more than twice the longest quiet period earlier in the
+  deployment, the camera probably stopped early and the period ends at the last file.
 - Trap-nights = trap hours / 24.
 - RAI (relative abundance index) = records / trap-nights x 100.
 - Naive occupancy = stations with >= 1 record / stations with trap effort.
@@ -221,6 +221,12 @@ def _date(value):
 
 
 def deployment_effort(con, dep) -> DeploymentEffort:
+    """Trap period of a deployment.
+
+    Default ('from files'): first file to last file.
+    With dates typed in by hand: start date to end date, plus the uptime check."""
+    from .db import deployment_period
+
     off = dep["time_offset_seconds"] or 0
     times = con.execute(
         "SELECT MIN(taken_at) a, MAX(taken_at) b FROM media WHERE deployment_id=? AND taken_at IS NOT NULL",
@@ -228,11 +234,9 @@ def deployment_effort(con, dep) -> DeploymentEffort:
     ).fetchone()
     first = corrected_time(times["a"], off)
     last = corrected_time(times["b"], off)
-    start = _date(dep["start_date"]) or first
-    nominal = _date(dep["end_date"])
-    nominal = nominal + dt.timedelta(days=1) if nominal else last
+    start, nominal, source = deployment_period(con, dep)
     stop, early = nominal, False
-    if last and nominal and (start is None or last > start):
+    if source == "dates" and last and nominal and (start is None or last > start):
         # Only call it "stopped early" if the silence at the end is clearly longer than the
         # camera's normal quiet periods: > 24 h AND > 2x the longest gap between earlier files.
         stamps = sorted(

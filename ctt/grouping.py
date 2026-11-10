@@ -8,14 +8,18 @@ ANIMAL = "animal"
 UNCERTAIN = "uncertain"
 HUMAN = "human"
 EMPTY = "empty"
+TEAM = "team"
 
-GROUPS = [ANIMAL, UNCERTAIN, HUMAN, EMPTY]
+GROUPS = [ANIMAL, UNCERTAIN, HUMAN, TEAM, EMPTY]
 GROUP_LABELS = {
     ANIMAL: "Animal",
     UNCERTAIN: "Uncertain",
-    HUMAN: "Human / Vehicle",
+    HUMAN: "People / livestock",
+    TEAM: "Survey team",
     EMPTY: "Empty",
 }
+# quick labels the user can give a file or event instead of a species
+QUICK = [EMPTY, HUMAN, TEAM]
 
 
 def classify(max_animal, max_person, max_vehicle, animal_thr=0.20, uncertain_thr=0.05, manual=None):
@@ -23,7 +27,7 @@ def classify(max_animal, max_person, max_vehicle, animal_thr=0.20, uncertain_thr
 
     - manual override (set by the user) always wins
     - animal score >= animal_thr                      -> Animal
-    - person/vehicle score >= animal_thr              -> Human / Vehicle
+    - person/vehicle score >= animal_thr              -> People / livestock
     - any score between uncertain_thr and animal_thr  -> Uncertain
     - otherwise                                       -> Empty
     Files not yet processed (scores None) return None.

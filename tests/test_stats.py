@@ -129,3 +129,31 @@ def test_quiet_camera_not_called_stopped(tmp_path):
     con.commit()
     e = stats.project_stats(con, pid).effort[0]
     assert not e.stopped_early and e.trap_nights == pytest.approx(20)
+
+
+def test_period_from_files(tmp_path):
+    con = db.connect(tmp_path / "f.db")
+    pid = db.add_project(con, "F")
+    s = db.add_station(con, pid, "S", 0, 37)
+    d = db.add_deployment(con, s, "D", tmp_path)          # no dates typed -> from files
+    _media(con, d, "1.jpg", dt.datetime(2026, 3, 1, 14, 30))
+    _media(con, d, "2.jpg", dt.datetime(2026, 3, 4, 8, 30))
+    con.commit()
+    dep = con.execute("SELECT * FROM deployment WHERE id=?", (d,)).fetchone()
+    assert dep["dates_auto"] == 1
+    assert db.deployment_period(con, dep) == (dt.datetime(2026, 3, 1, 14, 30), dt.datetime(2026, 3, 4, 8, 30), "files")
+    e = stats.project_stats(con, pid).effort[0]
+    assert e.trap_hours == pytest.approx(66) and not e.stopped_early
+    db.update_deployment(con, d, time_offset_seconds=3600)   # time correction shifts both ends
+    dep = con.execute("SELECT * FROM deployment WHERE id=?", (d,)).fetchone()
+    assert db.deployment_period(con, dep)[0] == dt.datetime(2026, 3, 1, 15, 30)
+
+
+def test_species_footage(proj):
+    from ctt.footage import species_footage
+
+    con, pid, ids = proj
+    rows = species_footage(con, pid, {"Plains zebra"})
+    assert [r["media"]["relpath"] for r in rows] == ["a1.jpg", "a2.jpg", "b1.jpg"]
+    assert rows[0]["station"] == "A" and rows[0]["labels"] == "Plains zebra ×3"
+    assert species_footage(con, pid, {"Goat"})[0]["station"] == "B"

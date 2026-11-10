@@ -12,30 +12,48 @@ from PySide6.QtWidgets import (
 from ctt import db, export, stats as S
 from ctt.db import TAXON_GROUPS
 from . import theme
+from .icons import icon, pixmap
 from .mapview import MapWidget
 
 
 # ---------------------------------------------------------------- small widgets
 class Tile(QFrame):
-    def __init__(self, label, value="–", note=""):
+    clicked = Signal()
+
+    def __init__(self, label, value="–", note="", clickable=False, icon_name=None, icon_color=None):
         super().__init__()
         self.setObjectName("Tile")
+        if clickable:
+            self.setProperty("clickable", True)
+            self.setCursor(Qt.CursorShape.PointingHandCursor)
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 10, 14, 10)
         lay.setSpacing(0)
         self.l = QLabel(label)
         self.l.setObjectName("TileLabel")
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        if icon_name:
+            ic = QLabel()
+            ic.setPixmap(pixmap(icon_name, icon_color or theme.OLIVE, 18))
+            top.addWidget(ic)
+        top.addWidget(self.l, 1)
         self.v = QLabel(value)
         self.v.setObjectName("TileValue")
         self.n = QLabel(note)
         self.n.setObjectName("TileNote")
         self.n.setWordWrap(True)
-        for w in (self.l, self.v, self.n):
+        lay.addLayout(top)
+        for w in (self.v, self.n):
             lay.addWidget(w)
 
     def set(self, value, note=""):
         self.v.setText(value)
         self.n.setText(note)
+
+    def mouseReleaseEvent(self, e):
+        if e.button() == Qt.MouseButton.LeftButton:
+            self.clicked.emit()
 
 
 def table(headers, stretch_last=False):
@@ -379,6 +397,8 @@ class ShapefileDialog(QDialog):
 class ProjectPage(QWidget):
     changed = Signal()
     open_station = Signal(int)
+    go_to_event = Signal(int, int)       # deployment id, event id
+    open_deployment = Signal(int)
 
     def __init__(self, con):
         super().__init__()
@@ -402,12 +422,15 @@ class ProjectPage(QWidget):
         self.taxon.setMinimumWidth(220)
         self.taxon.currentIndexChanged.connect(self._taxon_changed)
         top.addWidget(self.taxon)
-        b_set = QPushButton("Detection settings…")
+        b_set = QPushButton("Detection settings")
+        b_set.setIcon(icon("settings"))
         b_set.clicked.connect(self._settings)
-        b_xl = QPushButton("Export Excel…")
+        b_xl = QPushButton("Export Excel")
+        b_xl.setIcon(icon("file-spreadsheet", "#FFFFFF"))
         b_xl.setObjectName("Primary")
         b_xl.clicked.connect(self._export_excel)
-        b_shp = QPushButton("Export shapefile…")
+        b_shp = QPushButton("Export shapefile")
+        b_shp.setIcon(icon("map-2", "#FFFFFF"))
         b_shp.setObjectName("Accent")
         b_shp.clicked.connect(self._export_shp)
         for b in (b_set, b_xl, b_shp):
@@ -418,12 +441,15 @@ class ProjectPage(QWidget):
         grid.setSpacing(10)
         self.tiles = {}
         specs = [
-            ("stations", "Stations"), ("trapnights", "Trap-nights"), ("traphours", "Trap hours"),
-            ("files", "Files processed"), ("records", "Records"), ("richness", "Wild species"),
-            ("best", "Best station"), ("worst", "Lowest station"),
+            ("stations", "Stations", "map-pin"), ("trapnights", "Trap-nights", "calendar-time"),
+            ("traphours", "Trap hours", "hourglass"), ("files", "Files processed", "photo"),
+            ("records", "Records", "paw"), ("richness", "Wild species", "trees"),
+            ("best", "Best station", "star"), ("worst", "Lowest station", "target-arrow"),
         ]
-        for i, (k, label) in enumerate(specs):
-            t = Tile(label)
+        for i, (k, label, ic) in enumerate(specs):
+            t = Tile(label, clickable=True, icon_name=ic, icon_color=theme.OCHRE if k in ("best", "records") else theme.OLIVE)
+            t.setToolTip("Click for details")
+            t.clicked.connect(lambda k=k: self._tile_clicked(k))
             self.tiles[k] = t
             grid.addWidget(t, 0, i)
         lay.addLayout(grid)
@@ -438,23 +464,37 @@ class ProjectPage(QWidget):
         self.map_note = QLabel()
         self.map_note.setObjectName("TileNote")
         ml.addWidget(self.map_note)
-        self.tabs.addTab(mw, "Map")
+        self.tabs.addTab(mw, icon("map-2"), "Map")
         self.charts = ChartsPanel()
-        self.tabs.addTab(self.charts, "Charts")
+        self.tabs.addTab(self.charts, icon("chart-bar"), "Charts")
         self.st_table = table(["Station", "Elevation (m)", "Deployments", "Trap-nights", "Trap hours",
                                "Stopped early", "Files", "False triggers", "Records", "Wild species",
                                "Wild RAI", "Species"], stretch_last=True)
         self.st_table.cellDoubleClicked.connect(
             lambda r, _c: self.open_station.emit(self.st_table.item(r, 0).data(Qt.ItemDataRole.UserRole)))
-        self.tabs.addTab(self.st_table, "Stations")
+        self.tabs.addTab(self.st_table, icon("map-pin"), "Stations")
+        self.dep_table = table(["Station", "Deployment", "Start", "End", "Period from", "Trap-nights",
+                                "Trap hours", "Stopped early", "Files", "Animal", "Empty"], stretch_last=True)
+        self.dep_table.cellDoubleClicked.connect(
+            lambda r, _c: self.open_deployment.emit(self.dep_table.item(r, 1).data(Qt.ItemDataRole.UserRole)))
+        self.tabs.addTab(self.dep_table, icon("camera"), "Deployments")
+        spw = QWidget()
+        spl = QVBoxLayout(spw)
+        spl.setContentsMargins(0, 6, 0, 0)
+        sp_hint = QLabel("Click a species to see all its photos and videos.")
+        sp_hint.setObjectName("TileNote")
+        spl.addWidget(sp_hint)
         self.sp_table = table(["Species", "Scientific name", "Group", "Records", "Individuals", "Stations",
                                "Naive occupancy", "RAI", "First record", "Last record"], stretch_last=True)
-        self.tabs.addTab(self.sp_table, "Species")
+        self.sp_table.cellClicked.connect(self._species_clicked)
+        self.sp_table.setCursor(Qt.CursorShape.PointingHandCursor)
+        spl.addWidget(self.sp_table)
+        self.tabs.addTab(spw, icon("paw"), "Species")
         defs = QLabel("<br>".join(f"<b>{a}</b>: {b}" for a, b in export.DEFINITIONS))
         defs.setWordWrap(True)
         defs.setAlignment(Qt.AlignmentFlag.AlignTop)
         defs.setContentsMargins(14, 14, 14, 14)
-        self.tabs.addTab(defs, "How it's calculated")
+        self.tabs.addTab(defs, icon("info-circle"), "How it's calculated")
         lay.addWidget(self.tabs, 1)
 
     # ------------------------------------------------------------ loading
@@ -548,8 +588,25 @@ class ProjectPage(QWidget):
             NumItem(r["false_trigger_rate"], pct=True), NumItem(r["records"]), NumItem(r["richness"]),
             NumItem(r["wild_rai"], 2), ", ".join(r["species"]),
         ] for r in rows])
+        stn = {r["station_id"]: r["station"] for r in rows}
+        dep_rows = []
+        for e in sorted(st.effort, key=lambda e: (stn.get(e.station_id, ""), e.start or 0)):
+            dep = self.con.execute("SELECT * FROM deployment WHERE id=?", (e.deployment_id,)).fetchone()
+            c = {}
+            if dep:
+                from ctt import labels as L
+
+                c = L.group_counts(self.con, e.deployment_id, st.project["animal_threshold"], st.project["uncertain_threshold"])
+            src = "files" if dep is None or dep["dates_auto"] else "dates typed in"
+            dep_rows.append([
+                stn.get(e.station_id, ""), self._id_item(e.name, e.deployment_id),
+                e.start.strftime("%Y-%m-%d %H:%M") if e.start else "", e.stop.strftime("%Y-%m-%d %H:%M") if e.stop else "",
+                src, NumItem(e.trap_nights), NumItem(e.trap_hours, 0), "yes" if e.stopped_early else "",
+                NumItem(sum(c.values())), NumItem(c.get("animal", 0)), NumItem(c.get("empty", 0)),
+            ])
+        fill(self.dep_table, dep_rows)
         fill(self.sp_table, [[
-            r["species"], r["scientific_name"], r["group"], NumItem(r["records"]), NumItem(r["individuals"]),
+            self._id_item(r["species"], r["species_id"]), r["scientific_name"], r["group"], NumItem(r["records"]), NumItem(r["individuals"]),
             NumItem(r["stations"]), NumItem(r["naive_occupancy"], 2), NumItem(r["rai"], 2),
             r["first"].strftime("%Y-%m-%d") if r["first"] else "", r["last"].strftime("%Y-%m-%d") if r["last"] else "",
         ] for r in st.species_summary(tx)])
@@ -560,6 +617,34 @@ class ProjectPage(QWidget):
         it = QTableWidgetItem(text)
         it.setData(Qt.ItemDataRole.UserRole, rid)
         return it
+
+    # ------------------------------------------------------------ clicks
+    def _tab(self, name):
+        for i in range(self.tabs.count()):
+            if self.tabs.tabText(i) == name:
+                self.tabs.setCurrentIndex(i)
+
+    def _tile_clicked(self, key):
+        if key in ("best", "worst"):
+            b, w = self.st.best_worst() if self.st else (None, None)
+            row = b if key == "best" else w
+            if row and not (key == "worst" and row is b):
+                self.open_station.emit(row["station_id"])
+            return
+        target = {"stations": "Stations", "trapnights": "Deployments", "traphours": "Deployments",
+                  "files": "Deployments", "records": "Species", "richness": "Species"}.get(key)
+        if target:
+            self._tab(target)
+
+    def _species_clicked(self, row, _col):
+        it = self.sp_table.item(row, 0)
+        if it is None:
+            return
+        from .gallery import FootageGallery
+
+        dlg = FootageGallery(self, self.con, self.project_id, it.text(), {it.text()})
+        dlg.go_to_event.connect(self.go_to_event)
+        dlg.exec()
 
     # ------------------------------------------------------------ actions
     def _settings(self):

@@ -313,34 +313,62 @@ class StationDialog(QDialog):
 
 
 class DeploymentDialog(QDialog):
-    def __init__(self, parent=None, row=None):
+    def __init__(self, parent=None, row=None, file_period=None):
         super().__init__(parent)
+        from PySide6.QtWidgets import QCheckBox
+
         self.setWindowTitle("Deployment (one camera visit)")
+        self.resize(620, 360)
         f = QFormLayout(self)
         self.name = QLineEdit(row["name"] if row else "")
         self.folder = QLineEdit(row["folder"] if row else "")
         browse = QPushButton("Browse…")
         browse.clicked.connect(self._browse)
         frow = QHBoxLayout()
+        frow.setContentsMargins(0, 0, 0, 0)
         frow.addWidget(self.folder)
         frow.addWidget(browse)
         fw = QWidget()
         fw.setLayout(frow)
-        self.start = QDateEdit(calendarPopup=True)
-        self.end = QDateEdit(calendarPopup=True)
-        for w, key in ((self.start, "start_date"), (self.end, "end_date")):
-            w.setDisplayFormat("yyyy-MM-dd")
-            val = row[key] if row else ""
-            w.setDate(QDate.fromString(val, "yyyy-MM-dd") if val else QDate.currentDate())
+        self.auto = QCheckBox("Take start and end from the first and last photo/video (recommended)")
+        self.auto.setChecked(bool(row["dates_auto"]) if row else True)
+        self.start = QDateTimeEdit(calendarPopup=True)
+        self.end = QDateTimeEdit(calendarPopup=True)
+        first, last = file_period or (None, None)
+        for w, key, fallback in ((self.start, "start_date", first), (self.end, "end_date", last)):
+            w.setDisplayFormat("yyyy-MM-dd HH:mm")
+            val = (row[key] if row else "") or ""
+            if val:
+                w.setDateTime(QDateTime.fromString(val[:16], "yyyy-MM-dd HH:mm") if len(val) > 10
+                              else QDateTime(QDate.fromString(val[:10], "yyyy-MM-dd").startOfDay()))
+            elif fallback:
+                w.setDateTime(fallback)
+            else:
+                w.setDateTime(QDateTime.currentDateTime())
+        self.auto.toggled.connect(self._toggle)
+        self.period = QLabel()
+        self.period.setObjectName("TileNote")
+        if first and last:
+            self.period.setText(f"From the files: {first:%Y-%m-%d %H:%M} → {last:%Y-%m-%d %H:%M}")
+        else:
+            self.period.setText("The start and end are filled in automatically after the files are processed.")
         self.camera = QLineEdit(row["camera"] if row else "")
         self.notes = QLineEdit(row["notes"] if row else "")
         f.addRow("Deployment name", self.name)
         f.addRow("Folder with images/videos", fw)
-        f.addRow("Start date", self.start)
-        f.addRow("End date", self.end)
+        f.addRow(self.auto)
+        f.addRow("", self.period)
+        f.addRow("Start", self.start)
+        f.addRow("End", self.end)
         f.addRow("Camera (model / serial)", self.camera)
         f.addRow("Notes", self.notes)
         f.addRow(_buttons(self))
+        self._toggle()
+
+    def _toggle(self, *_):
+        manual = not self.auto.isChecked()
+        self.start.setEnabled(manual)
+        self.end.setEnabled(manual)
 
     def _browse(self):
         d = QFileDialog.getExistingDirectory(self, "Choose the folder with this deployment's files", self.folder.text())
@@ -355,14 +383,19 @@ class DeploymentDialog(QDialog):
         if not self.name.text().strip() or not self.folder.text().strip():
             QMessageBox.warning(self, "Missing", "Please give a name and choose a folder.")
             return
+        if not self.auto.isChecked() and self.end.dateTime() <= self.start.dateTime():
+            QMessageBox.warning(self, "Dates", "The end must be after the start.")
+            return
         super().accept()
 
     def values(self):
+        auto = self.auto.isChecked()
         return dict(
             name=self.name.text().strip(),
             folder=self.folder.text().strip(),
-            start_date=self.start.date().toString("yyyy-MM-dd"),
-            end_date=self.end.date().toString("yyyy-MM-dd"),
+            start_date="" if auto else self.start.dateTime().toString("yyyy-MM-dd HH:mm"),
+            end_date="" if auto else self.end.dateTime().toString("yyyy-MM-dd HH:mm"),
+            dates_auto=1 if auto else 0,
             camera=self.camera.text(),
             notes=self.notes.text(),
         )
@@ -471,7 +504,10 @@ class SpeciesDialog(QDialog):
         lay.addWidget(sub)
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("🔍  Search…")
+        self.search.setPlaceholderText("Search…")
+        from .icons import icon as _icon
+
+        self.search.addAction(_icon("search", "#6F7563", 18), QLineEdit.ActionPosition.LeadingPosition)
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._reload)
         lay.addWidget(self.search)

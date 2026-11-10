@@ -103,9 +103,17 @@ class ProjectCard(QFrame):
         top.addWidget(more)
         body.addLayout(top)
         if project["location"]:
-            loc = QLabel("📍 " + project["location"])
+            from .icons import pixmap
+
+            lrow = QHBoxLayout()
+            lrow.setSpacing(4)
+            pin = QLabel()
+            pin.setPixmap(pixmap("map-pin", theme.OCHRE, 15))
+            loc = QLabel(project["location"])
             loc.setObjectName("PageSubtitle")
-            body.addWidget(loc)
+            lrow.addWidget(pin)
+            lrow.addWidget(loc, 1)
+            body.addLayout(lrow)
         stats = QLabel(
             f"<b>{counts['stations']}</b> stations · <b>{counts['deployments']}</b> deployments<br>"
             f"<b>{counts['files']:,}</b> files · <b>{counts['species']}</b> species"
@@ -184,13 +192,17 @@ class HomePage(QWidget):
         txt = QVBoxLayout()
         t = QLabel("Your projects")
         t.setObjectName("PageTitle")
-        sub = QLabel("Find the empty camera trap files, label what's left, and see the results per station.")
+        sub = QLabel("Trapster by Wildsolutions – find the empty camera trap files, label what's left, "
+                     "and see the results per station.")
         sub.setObjectName("PageSubtitle")
         txt.setSpacing(2)
         txt.addWidget(t)
         txt.addWidget(sub)
         hero.addLayout(txt, 1)
-        newb = QPushButton("+  New project")
+        newb = QPushButton("New project")
+        from .icons import icon
+
+        newb.setIcon(icon("plus", "#FFFFFF"))
         newb.setObjectName("Primary")
         newb.clicked.connect(self.new_project)
         hero.addWidget(newb, 0, Qt.AlignmentFlag.AlignVCenter)

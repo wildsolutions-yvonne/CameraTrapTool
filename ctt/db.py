@@ -115,6 +115,8 @@ MIGRATIONS = {
         ("last_used_at", "TEXT"),
     ],
     "station": [("elevation", "REAL")],
+    # 1 = start/end of the deployment come from the first/last file (default)
+    "deployment": [("dates_auto", "INTEGER NOT NULL DEFAULT 1")],
     "project": [
         ("photo_path", "TEXT DEFAULT ''"),
         ("location", "TEXT DEFAULT ''"),
@@ -198,11 +200,13 @@ def delete_station(con, station_id):
 
 
 # ---------------------------------------------------------------- deployments
-def add_deployment(con, station_id, name, folder, start_date="", end_date="", camera="", notes=""):
+def add_deployment(con, station_id, name, folder, start_date="", end_date="", camera="", notes="", dates_auto=None):
+    if dates_auto is None:
+        dates_auto = 0 if (start_date or end_date) else 1
     cur = con.execute(
-        "INSERT INTO deployment(station_id, name, folder, start_date, end_date, camera, notes)"
-        " VALUES (?,?,?,?,?,?,?)",
-        (station_id, name, str(folder), start_date, end_date, camera, notes),
+        "INSERT INTO deployment(station_id, name, folder, start_date, end_date, camera, notes, dates_auto)"
+        " VALUES (?,?,?,?,?,?,?,?)",
+        (station_id, name, str(folder), start_date, end_date, camera, notes, int(dates_auto)),
     )
     con.commit()
     return cur.lastrowid
@@ -224,6 +228,46 @@ def get_deployment(con, deployment_id):
 
 def update_deployment(con, deployment_id, **fields):
     _update(con, "deployment", deployment_id, fields)
+
+
+def file_period(con, deployment_id):
+    """(first, last) file time of a deployment, with the time correction applied."""
+    import datetime as _dt
+
+    d = con.execute("SELECT time_offset_seconds FROM deployment WHERE id=?", (deployment_id,)).fetchone()
+    r = con.execute(
+        "SELECT MIN(taken_at) a, MAX(taken_at) b FROM media WHERE deployment_id=? AND taken_at IS NOT NULL",
+        (deployment_id,),
+    ).fetchone()
+    off = _dt.timedelta(seconds=(d["time_offset_seconds"] or 0) if d else 0)
+
+    def p(v):
+        try:
+            return _dt.datetime.fromisoformat(v) + off if v else None
+        except ValueError:
+            return None
+
+    return p(r["a"]), p(r["b"])
+
+
+def deployment_period(con, dep):
+    """(start, end, source) of a deployment. source = 'files' or 'dates'."""
+    import datetime as _dt
+
+    first, last = file_period(con, dep["id"])
+    if dep["dates_auto"] or not (dep["start_date"] and dep["end_date"]):
+        return first, last, "files"
+
+    def d(v, end=False):
+        try:
+            t = _dt.datetime.fromisoformat(v.strip())
+        except ValueError:
+            return None
+        if len(v.strip()) <= 10 and end:   # date only: count the whole last day
+            t += _dt.timedelta(days=1)
+        return t
+
+    return d(dep["start_date"]), d(dep["end_date"], end=True), "dates"
 
 
 def delete_deployment(con, deployment_id):

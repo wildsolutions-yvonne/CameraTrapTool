@@ -12,7 +12,8 @@ from PySide6.QtWidgets import (
 )
 
 from ctt import db, labels
-from ctt.grouping import ANIMAL, EMPTY, HUMAN, UNCERTAIN, GROUP_LABELS
+from ctt.grouping import ANIMAL, EMPTY, HUMAN, TEAM, UNCERTAIN, GROUP_LABELS
+from .icons import icon
 from .util import open_file
 from .workers import ThumbnailWorker
 
@@ -35,7 +36,7 @@ class ReviewGrid(QWidget):
         top = QHBoxLayout()
         top.addWidget(QLabel("Show:"))
         self.group = QComboBox()
-        for g in (EMPTY, UNCERTAIN, HUMAN, ANIMAL):
+        for g in (EMPTY, UNCERTAIN, HUMAN, TEAM, ANIMAL):
             self.group.addItem(GROUP_LABELS[g], g)
         self.group.currentIndexChanged.connect(lambda: self.reload(reset_page=True))
         top.addWidget(self.group)
@@ -66,15 +67,25 @@ class ReviewGrid(QWidget):
         lay.addWidget(self.list)
 
         btns = QHBoxLayout()
-        self.b_animal = QPushButton("✔ Has an animal")
-        self.b_human = QPushButton("Human / vehicle")
-        self.b_empty = QPushButton("✖ Really empty")
+        self.b_animal = QPushButton("Has an animal")
+        self.b_animal.setObjectName("Primary")
+        self.b_human = QPushButton("People / livestock")
+        self.b_team = QPushButton("Survey team")
+        self.b_empty = QPushButton("Really empty")
         self.b_reset = QPushButton("Undo (use detector result)")
+        self.b_reset.setIcon(icon("arrow-left"))
+        self.b_animal.setIcon(icon("paw", "#FFFFFF", 18))
+        self.b_human.setIcon(icon("users", "#263A14", 18))
+        self.b_team.setIcon(icon("users-group", "#263A14", 18))
+        self.b_empty.setIcon(icon("photo-off", "#263A14", 18))
+        for b in (self.b_human, self.b_team, self.b_empty):
+            b.setObjectName("Quick")
         self.b_animal.clicked.connect(lambda: self._mark(ANIMAL))
         self.b_human.clicked.connect(lambda: self._mark(HUMAN))
+        self.b_team.clicked.connect(lambda: self._mark(TEAM))
         self.b_empty.clicked.connect(lambda: self._mark(EMPTY))
         self.b_reset.clicked.connect(lambda: self._mark(None))
-        for b in (self.b_animal, self.b_human, self.b_empty, self.b_reset):
+        for b in (self.b_animal, self.b_human, self.b_team, self.b_empty, self.b_reset):
             btns.addWidget(b)
         btns.addStretch()
         lay.addLayout(btns)
@@ -117,12 +128,22 @@ class ReviewGrid(QWidget):
         self.prev.setEnabled(self.page > 0)
         self.next.setEnabled(self.page < n_pages - 1)
         chunk = self.rows[self.page * PAGE : (self.page + 1) * PAGE]
+        dep = db.get_deployment(self.con, self.deployment_id)
+        proj = db.get_project(self.con, dep["project_id"])
+        fl = labels.file_labels(self.con, [self.deployment_id], proj["animal_threshold"], proj["uncertain_threshold"])
         placeholder = QPixmap(THUMB, THUMB * 3 // 4)
         placeholder.fill(QColor("#ddd"))
         items = []
         for i, r in enumerate(chunk):
             score = max(r["max_animal"] or 0, r["max_person"] or 0, r["max_vehicle"] or 0)
-            text = f"{Path(r['relpath']).name}\nscore {score:.2f}" + (" • edited" if r["manual_group"] else "")
+            names = labels.label_text(fl.get(r["id"], {}).get("labels", []))
+            if names:
+                second = names                                   # labelled: show the species
+            elif r["manual_group"]:
+                second = GROUP_LABELS.get(r["manual_group"], r["manual_group"]) + " (set by you)"
+            else:
+                second = f"detector score {score:.2f}"
+            text = f"{Path(r['relpath']).name}\n{second}"
             it = QListWidgetItem(QIcon(placeholder), text)
             it.setData(Qt.ItemDataRole.UserRole, r["id"])
             it.setData(Qt.ItemDataRole.UserRole + 1, str(self.folder / r["relpath"]))
@@ -146,6 +167,9 @@ class ReviewGrid(QWidget):
         ids = [it.data(Qt.ItemDataRole.UserRole) for it in self.list.selectedItems()]
         if not ids:
             return
-        labels.set_manual_group(self.con, ids, group)
+        if group in (EMPTY, HUMAN, TEAM):
+            labels.quick_label(self.con, ids, group)
+        else:
+            labels.set_manual_group(self.con, ids, group)
         self.reload()
         self.changed.emit()

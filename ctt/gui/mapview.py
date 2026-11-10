@@ -32,7 +32,7 @@ LAYERS = {
         "max_zoom": 18,
     },
 }
-USER_AGENT = f"CameraTrapTool/{__version__} (camera trap research desktop app)"
+USER_AGENT = f"Trapster/{__version__} (Wildsolutions camera trap research desktop app)"
 
 
 def cache_dir() -> Path:

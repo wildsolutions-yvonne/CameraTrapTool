@@ -1,4 +1,4 @@
-"""Start Camera Trap Tool."""
+"""Start Trapster (by Wildsolutions)."""
 
 import sys
 
@@ -149,6 +149,16 @@ def selftest(out_path, sample_image=None):
         dp.labeller.picker.search.clear()
         app.processEvents()
         shot(win, "7_labeller", 1500)
+        n_before = dp.labeller.event_list.count()
+        dp.labeller.event_list.setCurrentRow(n_before - 1)
+        dp.labeller.quick_buttons["team"].click()
+        app.processEvents()
+        assert dp.labeller.event_list.count() == n_before - 1, "quick-labelled event should leave the list"
+        dp.tabs.setCurrentIndex(0)
+        dp.grid.group.setCurrentIndex(dp.grid.group.findData("team"))
+        app.processEvents()
+        assert dp.grid.list.count() >= 1, "survey team file should be in the team view"
+        shot(win, "7b_grid_team", 1000)
         assert "★" in dp.labeller.picker.list.item(0).text(), "recent species should be on top"
         from ctt.gui.deployment_page import ProgressTracker, fmt_duration
 
@@ -166,10 +176,31 @@ def selftest(out_path, sample_image=None):
             app.processEvents()
             shot(dlg, name, 5000 if "station" in name else 0)
             dlg.close()
+        # dashboard: clickable tiles, deployments tab, species footage gallery
+        win._select(("project", pid))
+        app.processEvents()
+        page.tiles["records"].clicked.emit()
+        assert page.tabs.tabText(page.tabs.currentIndex()) == "Species"
+        page.tiles["trapnights"].clicked.emit()
+        assert page.tabs.tabText(page.tabs.currentIndex()) == "Deployments"
+        assert page.dep_table.rowCount() >= 1
+        shot(win, "11_deployments_tab")
+        from ctt.gui.gallery import FootageGallery
+
+        gal = FootageGallery(win, win.con, pid, "Lion", {"Lion"})
+        gal.show()
+        app.processEvents()
+        assert gal.list.count() == 1, f"lion footage expected 1, got {gal.list.count()}"
+        shot(gal, "12_species_gallery", 1500)
+        gal.list.setCurrentRow(0)
+        gal._goto()
+        app.processEvents()
+        assert win.pages.currentWidget() is win.deployment_page
         win.go_home()
         app.processEvents()
         win.close()
-        return "home, dashboard (all charts/tabs/taxa), station, deployment, labeller search, dialogs"
+        return ("home, dashboard (all charts/tabs/taxa, tiles, deployments), station, deployment, labeller search, "
+                "quick labels, species gallery + jump to event, dialogs")
 
     step("GUI", gui)
 
@@ -185,7 +216,7 @@ def selftest(out_path, sample_image=None):
                     "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/10/515/616",
                     "https://api.open-meteo.com/v1/elevation?latitude=0.123&longitude=37.04"):
             req = QNetworkRequest(QUrl(url))
-            req.setRawHeader(b"User-Agent", b"CameraTrapTool selftest")
+            req.setRawHeader(b"User-Agent", b"Trapster selftest")
             reply = nam.get(req)
             loop = QEventLoop()
             reply.finished.connect(loop.quit)
@@ -245,7 +276,7 @@ def setup_logging():
 
             if QApplication.instance():
                 QMessageBox.critical(
-                    None, "Camera Trap Tool - error",
+                    None, "Trapster - error",
                     f"Something went wrong:\n\n{value}\n\nDetails were saved in:\n{logfile}\n\n"
                     "Your data is safe. Please send that file to the developer.",
                 )
@@ -258,7 +289,7 @@ def setup_logging():
 
     from ctt import __version__
 
-    logging.info("Camera Trap Tool %s on %s, Python %s", __version__, platform.platform(), platform.python_version())
+    logging.info("Trapster %s on %s, Python %s", __version__, platform.platform(), platform.python_version())
     return logfile
 
 
@@ -281,11 +312,11 @@ def main():
         try:
             import ctypes
 
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("WildSolutions.CameraTrapTool")
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("Wildsolutions.Trapster")
         except Exception:
             pass
     app = QApplication(sys.argv)
-    app.setApplicationName("Camera Trap Tool")
+    app.setApplicationName("Trapster")
     app.setStyle("Fusion")
     app.setStyleSheet(theme.style_sheet())
     app.setWindowIcon(QIcon(str(asset_path("app.ico"))))

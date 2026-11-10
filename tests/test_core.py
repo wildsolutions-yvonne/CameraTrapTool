@@ -162,11 +162,61 @@ def test_sort_into_subfolders(setup, tmp_path):
     labels.set_event_labels(con, evs[0]["id"], [(goat, 3, "")])      # animal burst, but goats
     labels.set_event_labels(con, evs[1]["id"], [(zebra, 1, "")])     # uncertain file labelled zebra
     res = sorting.copy_sorted(con, did)
-    assert res["counts"] == {"Wildlife": 1, "People & livestock": 4, "Empty": 1, "Uncertain": 0}
-    out = folder / "CTT_Sorted"
-    assert (out / "People & livestock" / "a0.jpg").exists()
-    assert (out / "Wildlife" / "u0.jpg").exists()
+    assert res["counts"] == {"Wildlife": 1, "People & livestock": 4, "Survey team": 0, "Empty": 1, "Uncertain": 0}
+    out = folder / "Trapster_Sorted"
+    assert (out / "People & livestock" / "a0 - Goat x3.jpg").exists()
+    assert (out / "Wildlife" / "u0 - Zebra.jpg").exists()
+    assert (out / "Empty" / "e0.jpg").exists()
     assert (folder / "a0.jpg").exists()                                # originals untouched
     assert processing.scan_deployment(con, did) == 0                   # copies not re-scanned
     again = sorting.copy_sorted(con, did)
-    assert again["skipped"] == 6
+    assert again["skipped"] == 6 and again["removed"] == 0
+
+
+def test_sort_fixes_wrong_folders(setup, tmp_path):
+    """The three causes of 'files in the wrong folder' seen with version 0.2."""
+    from ctt import sorting
+
+    con, pid, did, folder = setup
+    processing.scan_deployment(con, did)
+    processing.run_detection(con, did, FakeDetector())
+    # one long event: animal burst + empty frame + uncertain + person
+    processing.build_events(con, did, 3600)
+    ev = labels.events_to_label(con, did, 0.2, 0.05)[0]
+    baboon = db.add_species(con, "Olive baboon", "Papio anubis", "Primates")
+    cow = db.add_species(con, "Cattle")                                # no taxon group yet
+    labels.set_event_labels(con, ev["id"], [(baboon, 2, "")])
+    out = folder / "Trapster_Sorted"
+
+    res = sorting.copy_sorted(con, did)
+    # 1. the empty frame inside the labelled burst stays Empty (was: Wildlife)
+    assert (out / "Empty" / "e0.jpg").exists()
+    assert not list((out / "Wildlife").glob("e0*"))
+    assert res["no_group"] == []
+
+    # 2. relabel one file -> its old copy is removed, never in two folders
+    team_file = con.execute("SELECT id FROM media WHERE relpath='a1.jpg'").fetchone()["id"]
+    labels.quick_label(con, [team_file], "team")
+    res = sorting.copy_sorted(con, did)
+    assert (out / "Survey team" / "a1.jpg").exists()
+    assert not (out / "Wildlife" / "a1 - Olive baboon x2.jpg").exists()
+    assert res["removed"] == 1
+
+    # 3. species without a taxon group are reported, so the user can fix them first
+    a2 = con.execute("SELECT id FROM media WHERE relpath='a2.jpg'").fetchone()["id"]
+    labels.set_media_labels(con, a2, [(cow, 4, "")])
+    res = sorting.copy_sorted(con, did)
+    assert res["no_group"] == ["Cattle"]
+
+    # quick-labelled files disappear from the labelling list
+    files = labels.event_media(con, ev["id"], 0.2, 0.05)
+    assert "a1.jpg" not in [f["relpath"] for f in files] and "e0.jpg" not in [f["relpath"] for f in files]
+
+
+def test_labelled_name():
+    from ctt.sorting import labelled_name
+
+    assert labelled_name("DCIM/IMG_1.JPG", []) == "DCIM/IMG_1.JPG"
+    assert labelled_name("DCIM/IMG_1.JPG", [("Patas monkey", "", "Primates", 3, ""), ("Kirk's dik-dik", "", "", 1, "")]) \
+        == "DCIM/IMG_1 - Patas monkey x3, Kirk's dik-dik.JPG"
+    assert labelled_name("v.mp4", [("A/B: test?", "", "", 1, "")]) == "v - AB test.mp4"

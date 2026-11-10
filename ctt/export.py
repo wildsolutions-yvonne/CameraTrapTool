@@ -30,17 +30,11 @@ def export_rows(con, project_id, include_empty=False):
            ORDER BY s.name, d.name, m.taken_at, m.relpath""",
         (project_id,),
     ).fetchall()
-    # preload labels
-    ev_labels, md_labels = {}, {}
-    for l in con.execute(
-        """SELECT l.*, sp.common_name, sp.scientific_name FROM label l
-           JOIN species sp ON sp.id=l.species_id
-           JOIN event e ON e.id=l.event_id JOIN deployment d ON d.id=e.deployment_id
-           JOIN station s ON s.id=d.station_id WHERE s.project_id=?""",
-        (project_id,),
-    ):
-        target = md_labels.setdefault(l["media_id"], []) if l["media_id"] else ev_labels.setdefault(l["event_id"], [])
-        target.append(l)
+    # labels that really apply to each file (same rules as the subfolder copies)
+    from .labels import file_labels
+
+    dep_ids = sorted({m["deployment_id"] for m in media})
+    fl = file_labels(con, dep_ids, a_thr, u_thr)
 
     for m in media:
         grp = classify(m["max_animal"], m["max_person"], m["max_vehicle"], a_thr, u_thr, m["manual_group"])
@@ -65,17 +59,11 @@ def export_rows(con, project_id, include_empty=False):
             "person_score": _r(m["max_person"]),
             "vehicle_score": _r(m["max_vehicle"]),
         }
-        labels = md_labels.get(m["id"]) or ev_labels.get(m["event_id"]) or []
+        labels = fl.get(m["id"], {}).get("labels", [])
         if not labels:
             yield {**base, "species": "", "scientific_name": "", "count": "", "label_note": ""}
-        for l in labels:
-            yield {
-                **base,
-                "species": l["common_name"],
-                "scientific_name": l["scientific_name"],
-                "count": l["count"],
-                "label_note": l["note"],
-            }
+        for common, sci, _grp, count, note in labels:
+            yield {**base, "species": common, "scientific_name": sci, "count": count, "label_note": note}
 
 
 def _r(v):
@@ -98,7 +86,7 @@ def export_project(con, project_id, path, include_empty=False) -> int:
 
 DEFINITIONS = [
     ("Record", "One labelled event (photos/videos closer in time than the project's event gap) at one station, per species."),
-    ("Trap period", "Deployment start date 00:00 to end date 24:00. If the silence between the last file and the end date is longer than 24 h and more than twice the longest earlier quiet period, the camera probably stopped early; the period then ends at the last file (column 'Stopped early')."),
+    ("Trap period", "From the first to the last photo/video of a deployment (default). If start and end dates were typed in by hand: start date 00:00 to end date 24:00; if the camera was then silent at the end for longer than 24 h and more than twice its longest earlier quiet period, it probably stopped early and the period ends at the last file (column 'Stopped early')."),
     ("Trap-nights", "Trap hours / 24."),
     ("RAI", "Relative abundance index = records / trap-nights x 100."),
     ("Naive occupancy", "Stations with at least one record / stations with trap effort. Not corrected for detection probability."),

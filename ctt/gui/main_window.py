@@ -20,6 +20,7 @@ from .dashboard import ProjectPage
 from .deployment_page import DeploymentPage
 from .dialogs import DeploymentDialog, ProjectDialog, SpeciesDialog, StationDialog
 from .home import HomePage
+from .icons import icon
 from .station_page import StationPage
 
 ROLE = Qt.ItemDataRole.UserRole
@@ -37,7 +38,7 @@ class MainWindow(QMainWindow):
         self.db_path = str(db_path or db.default_db_path())
         self.con = db.connect(self.db_path)
         self.project_id = None
-        self.setWindowTitle("Camera Trap Tool")
+        self.setWindowTitle("Trapster")
         self.setWindowIcon(QIcon(str(asset_path("app.ico"))))
         self.resize(1520, 940)
 
@@ -72,21 +73,31 @@ class MainWindow(QMainWindow):
         logo.setCursor(Qt.CursorShape.PointingHandCursor)
         logo.mousePressEvent = lambda _e: self.go_home()
         lay.addWidget(logo)
-        title = QLabel("Camera Trap Tool")
+        tb = QVBoxLayout()
+        tb.setSpacing(0)
+        title = QLabel("Trapster")
         title.setObjectName("HeaderTitle")
-        lay.addWidget(title)
+        sub = QLabel("by Wildsolutions")
+        sub.setObjectName("HeaderSub")
+        tb.addStretch()
+        tb.addWidget(title)
+        tb.addWidget(sub)
+        tb.addStretch()
+        lay.addLayout(tb)
         lay.addSpacing(16)
         self.crumb = QLabel()
         self.crumb.setObjectName("Crumb")
         self.crumb.setTextFormat(Qt.TextFormat.RichText)
         self.crumb.linkActivated.connect(self._crumb_link)
         lay.addWidget(self.crumb, 1)
-        for text, fn in (("Projects", self.go_home), ("Species list", self.species_list)):
+        for text, fn, ic in (("Projects", self.go_home, "home"), ("Species list", self.species_list, "list-details")):
             b = QPushButton(text)
+            b.setIcon(icon(ic, "#FFFFFF", 18))
             b.setObjectName("HeaderButton")
             b.clicked.connect(fn)
             lay.addWidget(b)
-        helpb = QPushButton("Help ▾")
+        helpb = QPushButton("Help")
+        helpb.setIcon(icon("help-circle", "#FFFFFF", 18))
         helpb.setObjectName("HeaderButton")
         m = QMenu(helpb)
         m.addAction("Open log folder", self._open_logs)
@@ -131,15 +142,19 @@ class MainWindow(QMainWindow):
         self.tree.customContextMenuRequested.connect(self._context_menu)
         self.tree.itemDoubleClicked.connect(lambda it, _c: self._edit(it))
         sl.addWidget(self.tree, 1)
-        self.b_station = QPushButton("+  Add station")
+        self.b_station = QPushButton("Add station")
+        self.b_station.setIcon(icon("map-pin", "#FFFFFF", 18))
         self.b_station.setObjectName("Primary")
         self.b_station.clicked.connect(self.add_station)
-        self.b_dep = QPushButton("+  Add deployment")
+        self.b_dep = QPushButton("Add deployment")
+        self.b_dep.setIcon(icon("camera", "#263A14", 18))
         self.b_dep.clicked.connect(self._add_deployment_here)
         row = QHBoxLayout()
         self.b_edit = QPushButton("Edit")
+        self.b_edit.setIcon(icon("pencil", "#263A14", 16))
         self.b_edit.clicked.connect(lambda: self._edit(self.tree.currentItem()))
         self.b_del = QPushButton("Delete")
+        self.b_del.setIcon(icon("trash", "#B23A2E", 16))
         self.b_del.setObjectName("Danger")
         self.b_del.clicked.connect(self._delete)
         row.addWidget(self.b_edit)
@@ -157,6 +172,8 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(w)
         self.project_page.changed.connect(self._refresh_tree_keep)
         self.project_page.open_station.connect(lambda sid: self._select(("station", sid)))
+        self.project_page.open_deployment.connect(lambda did: self._select(("deployment", did)))
+        self.project_page.go_to_event.connect(self.go_to_event)
         self.deployment_page.changed.connect(self._refresh_tree_keep)
         self.station_page.add_deployment.connect(self._add_deployment_to)
         self.station_page.open_deployment.connect(lambda did: self._select(("deployment", did)))
@@ -191,19 +208,22 @@ class MainWindow(QMainWindow):
         self.tree.blockSignals(True)
         self.tree.clear()
         p = db.get_project(self.con, self.project_id)
-        root = QTreeWidgetItem(["📊  Dashboard"])
+        root = QTreeWidgetItem(["Dashboard"])
         root.setData(0, ROLE, ("project", p["id"]))
+        root.setIcon(0, icon("layout-dashboard", "#4E8A1E", 18))
         self.tree.addTopLevelItem(root)
         target = root if select in (None, ("project", p["id"])) else None
         for s in db.list_stations(self.con, p["id"]):
-            si = QTreeWidgetItem([f"📍  {s['name']}"])
+            si = QTreeWidgetItem([s["name"]])
             si.setData(0, ROLE, ("station", s["id"]))
+            si.setIcon(0, icon("map-pin", "#F7931E", 18))
             self.tree.addTopLevelItem(si)
             if select == ("station", s["id"]):
                 target = si
             for d in db.list_deployments(self.con, s["id"]):
-                mark = "✔" if d["processed_at"] else "○"
-                di = QTreeWidgetItem([f"{mark}  {d['name']}"])
+                di = QTreeWidgetItem([d["name"]])
+                di.setIcon(0, icon("check" if d["processed_at"] else "camera",
+                                   "#4E8A1E" if d["processed_at"] else "#6F7563", 16))
                 di.setData(0, ROLE, ("deployment", d["id"]))
                 di.setToolTip(0, d["folder"])
                 si.addChild(di)
@@ -224,15 +244,19 @@ class MainWindow(QMainWindow):
         """Update tree labels without reloading the open page."""
         self.tree.clear()
         p = db.get_project(self.con, self.project_id)
-        root = QTreeWidgetItem(["📊  Dashboard"])
+        root = QTreeWidgetItem(["Dashboard"])
         root.setData(0, ROLE, ("project", p["id"]))
+        root.setIcon(0, icon("layout-dashboard", "#4E8A1E", 18))
         self.tree.addTopLevelItem(root)
         for s in db.list_stations(self.con, p["id"]):
-            si = QTreeWidgetItem([f"📍  {s['name']}"])
+            si = QTreeWidgetItem([s["name"]])
             si.setData(0, ROLE, ("station", s["id"]))
+            si.setIcon(0, icon("map-pin", "#F7931E", 18))
             self.tree.addTopLevelItem(si)
             for d in db.list_deployments(self.con, s["id"]):
-                di = QTreeWidgetItem([f"{'✔' if d['processed_at'] else '○'}  {d['name']}"])
+                di = QTreeWidgetItem([d["name"]])
+                di.setIcon(0, icon("check" if d["processed_at"] else "camera",
+                                   "#4E8A1E" if d["processed_at"] else "#6F7563", 16))
                 di.setData(0, ROLE, ("deployment", d["id"]))
                 si.addChild(di)
         self.tree.expandAll()
@@ -281,6 +305,12 @@ class MainWindow(QMainWindow):
             d = db.get_deployment(self.con, rid)
             crumbs += [(d["station_name"], f"station:{d['station_id']}"), (d["name"], None)]
         self._set_crumb(crumbs)
+
+    def go_to_event(self, deployment_id, event_id):
+        """Open a deployment's labelling tab at one event (from the species footage gallery)."""
+        self._select(("deployment", deployment_id))
+        self.deployment_page.tabs.setCurrentIndex(1)
+        self.deployment_page.labeller.select_event(event_id)
 
     def _context_menu(self, pos):
         it = self.tree.itemAt(pos)
@@ -400,7 +430,7 @@ class MainWindow(QMainWindow):
                 except Exception as exc:
                     QMessageBox.warning(self, "Not saved", str(exc))
         else:
-            dlg = DeploymentDialog(self, db.get_deployment(self.con, rid))
+            dlg = DeploymentDialog(self, db.get_deployment(self.con, rid), db.file_period(self.con, rid))
             if dlg.exec():
                 db.update_deployment(self.con, rid, **dlg.values())
         self.refresh_tree((kind, rid))
@@ -412,7 +442,7 @@ class MainWindow(QMainWindow):
         kind, rid = it.data(0, ROLE)
         if kind == "project":
             return self.delete_project(rid)
-        name = it.text(0).split("  ", 1)[-1]
+        name = it.text(0)
         if QMessageBox.question(
             self, "Delete",
             f"Delete {kind} '{name}' and everything under it (including labels)?\n"
@@ -441,7 +471,7 @@ class MainWindow(QMainWindow):
     def _about(self):
         QMessageBox.about(
             self, "About",
-            f"<b>Camera Trap Tool {__version__}</b><br>Finds empty camera trap images and videos with "
+            f"<b>Trapster {__version__}</b> by Wildsolutions<br>Finds empty camera trap images and videos with "
             "MegaDetector v5a (Beery et al. 2019) and helps you label the rest by hand.<br><br>"
             "Map data © OpenStreetMap contributors; imagery © Esri. Elevation: Copernicus DEM via open-meteo.com.<br>"
             "Inspired by AddaxAI (van Lunteren 2023). Your original files are never moved or changed.",

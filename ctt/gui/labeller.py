@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
 from ctt import db, labels
 from ctt.grouping import EMPTY, GROUP_LABELS
 from ctt.processing import corrected_time
+from .icons import icon
 from .util import load_image, open_file
 from .workers import ThumbnailWorker
 
@@ -90,7 +91,10 @@ class SpeciesPicker(QWidget):
         lay.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
         self.search.setObjectName("Search")
-        self.search.setPlaceholderText("🔍  Search species (common or scientific name)…")
+        self.search.setPlaceholderText("Search species (common or scientific name)…")
+        from .icons import icon as _icon
+
+        self.search.addAction(_icon("search", "#6F7563", 18), QLineEdit.ActionPosition.LeadingPosition)
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self.refresh)
         self.search.returnPressed.connect(self._enter)
@@ -175,7 +179,8 @@ class Labeller(QWidget):
         info = QHBoxLayout()
         self.file_info = QLabel()
         self.file_info.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        open_btn = QPushButton("Open in viewer / play video")
+        open_btn = QPushButton("Open / play video")
+        open_btn.setIcon(icon("player-play"))
         open_btn.clicked.connect(self._open_current)
         info.addWidget(self.file_info, 1)
         info.addWidget(open_btn)
@@ -193,8 +198,11 @@ class Labeller(QWidget):
 
         # --- right: labels
         right = QWidget()
+        right.setMinimumWidth(460)
         rl = QVBoxLayout(right)
-        rl.addWidget(QLabel("<b>What is in this event?</b>"))
+        title = QLabel("What is in this event?")
+        title.setObjectName("SectionTitle")
+        rl.addWidget(title)
         scope = QHBoxLayout()
         self.scope_event = QRadioButton("Whole event")
         self.scope_file = QRadioButton("This file only")
@@ -205,11 +213,33 @@ class Labeller(QWidget):
         self.scope_event.toggled.connect(self._load_label_rows)
         scope.addWidget(self.scope_event)
         scope.addWidget(self.scope_file)
+        scope.addStretch()
         rl.addLayout(scope)
+
+        # quick labels: always one click away
+        quick = QHBoxLayout()
+        self.quick_buttons = {}
+        for grp, text, tip, ic in (
+            ("empty", "Empty", "Nothing in it (false trigger, wind, sun)", "photo-off"),
+            ("human", "People / livestock", "Herders, villagers, cattle, goats, dogs…", "users"),
+            ("team", "Survey team", "Your own team setting or checking the camera", "users-group"),
+        ):
+            b = QPushButton(text)
+            b.setIcon(icon(ic, "#263A14", 18))
+            b.setObjectName("Quick")
+            b.setToolTip(tip + " – removed from the labelling list")
+            b.clicked.connect(lambda _c=False, g=grp: self._quick(g))
+            self.quick_buttons[grp] = b
+            quick.addWidget(b)
+        rl.addLayout(quick)
+
         self.override_note = QLabel()
         self.override_note.setStyleSheet("color:#b26a00")
         rl.addWidget(self.override_note)
 
+        chosen = QLabel("Species in this event")
+        chosen.setObjectName("TileNote")
+        rl.addWidget(chosen)
         self.rows_box = QVBoxLayout()
         rows_w = QWidget()
         rows_w.setLayout(self.rows_box)
@@ -218,32 +248,43 @@ class Labeller(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setWidget(rows_w)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        rl.addWidget(scroll, 1)
+        scroll.setMinimumHeight(90)
+        rl.addWidget(scroll, 2)
         pick_title = QLabel("Add a species  (★ = used recently)")
         pick_title.setObjectName("TileNote")
         rl.addWidget(pick_title)
         self.picker = SpeciesPicker(self.con)
         self.picker.picked.connect(self._picked)
-        rl.addWidget(self.picker, 1)
-        rl.addWidget(QLabel("Event note"))
+        self.picker.list.setMinimumHeight(260)
+        rl.addWidget(self.picker, 5)
+        note_row = QHBoxLayout()
+        note_row.addWidget(QLabel("Event note"))
         self.event_note = QLineEdit()
-        rl.addWidget(self.event_note)
+        note_row.addWidget(self.event_note, 1)
+        rl.addLayout(note_row)
 
-        save = QPushButton("Save and go to next event  ▶")
-        save.setStyleSheet("font-weight:bold; padding:8px")
+        save = QPushButton("Save and go to next event")
+        save.setIcon(icon("arrow-right", "#FFFFFF"))
+        save.setLayoutDirection(Qt.LayoutDirection.RightToLeft)
+        save.setObjectName("Primary")
+        save.setMinimumHeight(38)
         save.clicked.connect(lambda: self._save(go_next=True))
-        save_only = QPushButton("Save")
-        save_only.clicked.connect(lambda: self._save(go_next=False))
-        self.clear_override = QPushButton("Remove this file's own labels")
-        self.clear_override.clicked.connect(self._clear_override)
-        empty = QPushButton("Nothing here — mark whole event as empty")
-        empty.clicked.connect(self._mark_empty)
-        prev = QPushButton("◀ Previous event")
+        row2 = QHBoxLayout()
+        prev = QPushButton("Previous")
+        prev.setIcon(icon("arrow-left"))
         prev.clicked.connect(lambda: self._step(-1))
-        for b in (save, save_only, self.clear_override, empty, prev):
-            rl.addWidget(b)
+        save_only = QPushButton("Save")
+        save_only.setIcon(icon("device-floppy"))
+        save_only.clicked.connect(lambda: self._save(go_next=False))
+        self.clear_override = QPushButton("Remove file's own labels")
+        self.clear_override.clicked.connect(self._clear_override)
+        for w in (prev, save_only, self.clear_override):
+            row2.addWidget(w)
+        rl.addWidget(save)
+        rl.addLayout(row2)
         split.addWidget(right)
-        split.setSizes([260, 800, 420])
+        split.setSizes([230, 760, 520])
+        split.setStretchFactor(1, 1)
 
     # ------------------------------------------------------------ data
     def load(self, deployment_id):
@@ -291,6 +332,7 @@ class Labeller(QWidget):
         ev = self.events[row]
         _, a, u = self._thresholds()
         self.media = labels.event_media(self.con, ev["id"], a, u)
+        self._file_labels = labels.file_labels(self.con, [self.deployment_id], a, u)
         self.event_note.setText(ev["note"] or "")
         folder = Path(self.dep["folder"])
         if self.thumb_worker:
@@ -303,7 +345,8 @@ class Labeller(QWidget):
         items = []
         first_interesting = 0
         for i, m in enumerate(self.media):
-            grp = GROUP_LABELS.get(m["grp"], "?")
+            names = labels.label_text(self._file_labels.get(m["id"], {}).get("labels", []))
+            grp = names or GROUP_LABELS.get(m["grp"], "?")
             it = QListWidgetItem(QIcon(ph), ("▶ " if m["kind"] == "video" else "") + grp)
             self.strip.addItem(it)
             items.append((i, str(folder / m["relpath"]), m["kind"], m["best_frame_seconds"]))
@@ -423,13 +466,26 @@ class Labeller(QWidget):
             self._load_label_rows()
             self.changed.emit()
 
-    def _mark_empty(self):
-        if not self.events:
+    def select_event(self, event_id):
+        if self.only_open.isChecked():
+            self.only_open.setChecked(False)  # labelled events must be visible
+        for i, e in enumerate(self.events):
+            if e["id"] == event_id:
+                self.event_list.setCurrentRow(i)
+                return True
+        return False
+
+    def _quick(self, group):
+        """Empty / People & livestock / Survey team for the whole event or this file."""
+        if not self.events or self.event_list.currentRow() < 0:
             return
         ev = self.events[self.event_list.currentRow()]
-        labels.set_manual_group(self.con, [m["id"] for m in self.media], EMPTY)
-        labels.set_event_labels(self.con, ev["id"], [])
         row = self.event_list.currentRow()
+        if self.scope_file.isChecked() and self.current_media:
+            labels.quick_label(self.con, [self.current_media["id"]], group)
+        else:
+            labels.quick_label(self.con, [m["id"] for m in self.media], group)
+            labels.set_event_labels(self.con, ev["id"], [])
         self.reload()
         self.changed.emit()
         if self.event_list.count():

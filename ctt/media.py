@@ -16,7 +16,7 @@ def find_media(folder: str | Path):
     found = []
     for root, dirs, files in os.walk(folder):
         # never re-scan the copies made by "Sort into subfolders"
-        dirs[:] = [d for d in dirs if d != "CTT_Sorted"]
+        dirs[:] = [d for d in dirs if d not in ("CTT_Sorted", "Trapster_Sorted")]
         for name in files:
             ext = Path(name).suffix.lower()
             if ext in IMAGE_EXT:

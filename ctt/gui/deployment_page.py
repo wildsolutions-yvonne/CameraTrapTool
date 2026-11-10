@@ -16,6 +16,7 @@ from ctt import db, labels, processing, sorting
 from ctt.grouping import GROUP_LABELS
 from . import theme
 from .dashboard import Tile
+from .icons import icon
 from .dialogs import TimeCorrectionDialog
 from .labeller import Labeller
 from .review_grid import ReviewGrid
@@ -77,15 +78,19 @@ class DeploymentPage(QWidget):
         tl.addWidget(self.title)
         tl.addWidget(self.info)
         top.addLayout(tl, 1)
-        self.time_btn = QPushButton("Correct date/time…")
+        self.time_btn = QPushButton("Correct date/time")
+        self.time_btn.setIcon(icon("clock"))
         self.time_btn.clicked.connect(self._time)
         self.events_btn = QPushButton("Regroup events")
+        self.events_btn.setIcon(icon("refresh"))
         self.events_btn.setToolTip("Rebuild the events (bursts) using the project's time gap")
         self.events_btn.clicked.connect(self._regroup)
-        self.sort_btn = QPushButton("Copy into subfolders…")
+        self.sort_btn = QPushButton("Copy into subfolders")
+        self.sort_btn.setIcon(icon("copy"))
         self.sort_btn.setToolTip("Copy files into Wildlife / People & livestock / Empty / Uncertain folders")
         self.sort_btn.clicked.connect(self._sort)
         self.open_btn = QPushButton("Open folder")
+        self.open_btn.setIcon(icon("folder-open"))
         self.open_btn.clicked.connect(lambda: open_file(db.get_deployment(self.con, self.deployment_id)["folder"]))
         for b in (self.open_btn, self.time_btn, self.events_btn, self.sort_btn):
             top.addWidget(b)
@@ -98,9 +103,11 @@ class DeploymentPage(QWidget):
         rl.setContentsMargins(16, 12, 16, 12)
         row = QHBoxLayout()
         self.run_btn = QPushButton("Find empty files (run MegaDetector)")
+        self.run_btn.setIcon(icon("player-play", "#FFFFFF"))
         self.run_btn.setObjectName("Primary")
         self.run_btn.clicked.connect(self._run)
         self.stop_btn = QPushButton("Pause")
+        self.stop_btn.setIcon(icon("player-pause"))
         self.stop_btn.setEnabled(False)
         self.stop_btn.clicked.connect(self._stop)
         self.use_gpu = QCheckBox("Use graphics card if possible")
@@ -124,8 +131,10 @@ class DeploymentPage(QWidget):
         tiles = QGridLayout()
         tiles.setSpacing(10)
         self.tiles = {}
-        for i, g in enumerate(("animal", "uncertain", "human", "empty", "pending")):
-            t = Tile(GROUP_LABELS.get(g, "Still to process"))
+        icons = {"animal": "paw", "uncertain": "help-circle", "human": "users", "team": "users-group",
+                 "empty": "photo-off", "pending": "hourglass"}
+        for i, g in enumerate(("animal", "uncertain", "human", "team", "empty", "pending")):
+            t = Tile(GROUP_LABELS.get(g, "Still to process"), icon_name=icons[g], icon_color=theme.GROUP_COLOURS[g])
             t.v.setStyleSheet(f"color: {theme.GROUP_COLOURS[g]};")
             self.tiles[g] = t
             tiles.addWidget(t, 0, i)
@@ -134,8 +143,8 @@ class DeploymentPage(QWidget):
         self.tabs = QTabWidget()
         self.grid = ReviewGrid(con)
         self.labeller = Labeller(con)
-        self.tabs.addTab(self.grid, "1.  Check empty files")
-        self.tabs.addTab(self.labeller, "2.  Label animals")
+        self.tabs.addTab(self.grid, icon("photo-off"), "1.  Check empty files")
+        self.tabs.addTab(self.labeller, icon("paw"), "2.  Label animals")
         self.tabs.currentChanged.connect(self._tab_changed)
         lay.addWidget(self.tabs, 1)
         self.grid.changed.connect(self._refresh_counts)
@@ -152,8 +161,11 @@ class DeploymentPage(QWidget):
         d = db.get_deployment(self.con, deployment_id)
         self.title.setText(d["name"])
         off = d["time_offset_seconds"]
+        start, end, src = db.deployment_period(self.con, d)
+        when = (f"{start:%Y-%m-%d %H:%M} → {end:%Y-%m-%d %H:%M}" + (" (from files)" if src == "files" else "")
+                if start and end else "start/end: after processing")
         self.info.setText(
-            f"Station {d['station_name']}  ·  {d['start_date']} → {d['end_date']}  ·  Camera: {d['camera'] or '–'}"
+            f"Station {d['station_name']}  ·  {when}  ·  Camera: {d['camera'] or '–'}"
             + (f"  ·  <span style='color:{theme.OCHRE_DARK}'>time corrected {off:+d} s</span>" if off else "")
             + f"<br>{d['folder']}"
             + ("" if Path(d["folder"]).is_dir() else f"<br><b style='color:{theme.RED}'>Folder not found – is the drive connected?</b>")
@@ -266,8 +278,10 @@ class DeploymentPage(QWidget):
         box.setText(
             "Copies of the files will be put in four folders:<br><br>"
             "• <b>Wildlife</b> – animals (and files you labelled with wild species)<br>"
-            "• <b>People &amp; livestock</b> – people, vehicles, and files labelled with Domestic/Human species<br>"
-            "• <b>Empty</b><br>• <b>Uncertain</b> – not yet checked or labelled<br><br>"
+            "• <b>People &amp; livestock</b> – people, and files labelled with Domestic/Human species<br>"
+            "• <b>Survey team</b><br>• <b>Empty</b><br>• <b>Uncertain</b> – not yet checked or labelled<br><br>"
+            "Labelled files get the species in the file name, e.g. <i>IMG_0042 - Patas monkey x3.JPG</i>. "
+            "Running it again brings the folders up to date (old copies of relabelled files are removed).<br><br>"
             f"Default location:<br><code>{default}</code><br><br>"
             "Your original files stay where they are. Label first if you want livestock separated from wildlife."
         )
@@ -284,6 +298,16 @@ class DeploymentPage(QWidget):
             dest = str(Path(dest) / d["name"])
         else:
             return
+        _src, _items, no_group = sorting.plan(self.con, self.deployment_id)
+        if no_group:
+            ans = QMessageBox.question(
+                self, "Species without a taxon group",
+                "These species have no taxon group yet:\n\n  " + "\n  ".join(no_group) +
+                "\n\nWithout a group they are treated as wildlife. Livestock (cattle, goats, dogs…) needs the "
+                "group 'Domestic' to go to 'People & livestock'.\n\nCopy anyway? (Choose No to set the groups "
+                "first via 'Species list' at the top.)")
+            if ans != QMessageBox.StandardButton.Yes:
+                return
         self.sort_worker = SortWorker(self.db_path, self.deployment_id, dest)
         self.sort_worker.progress.connect(self._progress)
         self.sort_worker.finished_ok.connect(self._sorted)
@@ -304,9 +328,13 @@ class DeploymentPage(QWidget):
         self.eta.setText("Copied ✔")
         c = res["counts"]
         self.status.setText(" · ".join(f"{k}: {v:,}" for k, v in c.items()) + f"   →  {res['dest']}")
-        if QMessageBox.question(self, "Copied", "Files copied:\n\n" + "\n".join(f"{k}: {v:,}" for k, v in c.items())
-                                + f"\n\n(Already there, skipped: {res['skipped']:,})\n\nOpen the folder?") \
-                == QMessageBox.StandardButton.Yes:
+        msg = "Files per folder:\n\n" + "\n".join(f"{k}: {v:,}" for k, v in c.items())
+        msg += f"\n\nNew copies: {res['copied']:,}   ·   already up to date: {res['skipped']:,}"
+        if res["removed"]:
+            msg += f"\nOld copies removed (label changed): {res['removed']:,}"
+        if res["missing"]:
+            msg += f"\nOriginal not found (drive disconnected?): {len(res['missing']):,}"
+        if QMessageBox.question(self, "Copied", msg + "\n\nOpen the folder?") == QMessageBox.StandardButton.Yes:
             open_file(res["dest"])
 
     # ------------------------------------------------------------ tools

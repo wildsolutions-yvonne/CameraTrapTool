@@ -1,23 +1,26 @@
-"""Colours and style sheet: earthy savanna palette."""
+"""Trapster colours and style sheet: lime green, dark green and orange."""
 
-OLIVE = "#4F5D2F"
-OLIVE_DARK = "#36401F"
-OLIVE_LIGHT = "#E6E9DA"
-OCHRE = "#C8963E"
-OCHRE_DARK = "#A87A2A"
-SAND = "#F5F1E8"
+# names kept from earlier versions; values are the Trapster palette
+OLIVE = "#4E8A1E"        # main green (buttons, bars)
+OLIVE_DARK = "#263A14"   # dark green (titles, logo monkey)
+OLIVE_LIGHT = "#E5F1D2"  # light green (selection)
+LIME = "#96CD3C"
+HEADER = "#36401F"       # dark olive header
+OCHRE = "#F7931E"        # orange accent
+OCHRE_DARK = "#D97A0B"
+SAND = "#F6F6F0"
 CARD = "#FFFFFF"
-LINE = "#E2DCCD"
-TEXT = "#2B2A26"
-MUTED = "#7A7466"
+LINE = "#E1E3D6"
+TEXT = "#232A1B"
+MUTED = "#6F7563"
 RED = "#B23A2E"
 BLUE = "#3E6E8E"
 
-# for charts (colour-blind friendly, earthy)
-CHART = ["#4F5D2F", "#C8963E", "#3E6E8E", "#B23A2E", "#7B5E3B", "#8FA05A", "#D9B86C", "#6A8FA8", "#9C6B5A", "#5C5A52"]
+# for charts
+CHART = ["#4E8A1E", "#F7931E", "#3E6E8E", "#96CD3C", "#B23A2E", "#7B5E3B", "#263A14", "#FBC37A", "#6A8FA8", "#9C6B5A"]
 
 GROUP_COLOURS = {
-    "animal": OLIVE, "uncertain": OCHRE, "human": BLUE, "empty": "#A9A397", "pending": "#D7D2C6",
+    "animal": OLIVE, "uncertain": OCHRE, "human": BLUE, "team": "#7B5E3B", "empty": "#A3A796", "pending": "#D3D6C8",
 }
 
 STYLE = f"""
@@ -25,7 +28,8 @@ QWidget {{ font-family: "Segoe UI", Arial; font-size: 10pt; color: {TEXT}; }}
 QMainWindow, QDialog {{ background: {SAND}; }}
 QStackedWidget > QWidget {{ background: {SAND}; }}
 
-#Header {{ background: {OLIVE_DARK}; }}
+#Header {{ background: {HEADER}; }}
+#HeaderSub {{ color: {OCHRE}; font-size: 8.5pt; font-weight: 600; }}
 #Header QLabel {{ color: white; }}
 #HeaderTitle {{ font-size: 14pt; font-weight: 600; color: white; }}
 #Crumb {{ color: #D9DCC8; font-size: 11pt; }}
@@ -57,6 +61,9 @@ QPushButton#Primary:hover {{ background: {OLIVE_DARK}; }}
 QPushButton#Accent {{ background: {OCHRE}; color: white; border: 1px solid {OCHRE}; font-weight: 600; }}
 QPushButton#Accent:hover {{ background: {OCHRE_DARK}; }}
 QPushButton#Danger {{ color: {RED}; }}
+QPushButton#Quick {{ background: #F1F3EA; border: 1px solid {LINE}; font-weight: 600; padding: 8px 10px; }}
+QPushButton#Quick:hover {{ background: {OLIVE_LIGHT}; border-color: {OLIVE}; }}
+#Tile[clickable="true"]:hover {{ border: 1px solid {OCHRE}; background: #FFFBF4; }}
 QPushButton#Flat {{ border: none; background: transparent; color: {OLIVE}; text-decoration: underline; }}
 
 QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, QDateEdit, QDateTimeEdit, QTextEdit {{
@@ -98,7 +105,7 @@ QProgressBar {{ border: 1px solid {LINE}; border-radius: 6px; background: white;
 QProgressBar::chunk {{ background: {OLIVE}; border-radius: 5px; }}
 QGroupBox {{ border: 1px solid {LINE}; border-radius: 8px; margin-top: 14px; background: {CARD}; padding: 10px; }}
 QGroupBox::title {{ subcontrol-origin: margin; left: 10px; padding: 0 4px; color: {OLIVE_DARK}; font-weight: 600; }}
-QMenuBar {{ background: {OLIVE_DARK}; color: white; }}
+QMenuBar {{ background: {HEADER}; color: white; }}
 QMenuBar::item:selected {{ background: {OLIVE}; }}
 QScrollArea {{ border: none; background: transparent; }}
 QToolTip {{ background: {TEXT}; color: white; border: none; padding: 4px; }}
