@@ -188,6 +188,7 @@ def selftest(out_path, sample_image=None):
         from ctt.gui.gallery import FootageGallery
 
         gal = FootageGallery(win, win.con, pid, "Lion", {"Lion"})
+        gal.go_to_event.connect(win.go_to_event)
         gal.show()
         app.processEvents()
         assert gal.list.count() == 1, f"lion footage expected 1, got {gal.list.count()}"
