@@ -100,6 +100,7 @@ class SpeciesPicker(QWidget):
         self.search.returnPressed.connect(self._enter)
         lay.addWidget(self.search)
         self.list = QListWidget()
+        self.list.setStyleSheet("QListWidget { font-size: 11pt; } QListWidget::item { padding: 5px 4px; }")
         self.list.itemClicked.connect(lambda it: self._pick(it))
         self.list.itemActivated.connect(lambda it: self._pick(it))
         lay.addWidget(self.list)
@@ -314,8 +315,9 @@ class Labeller(QWidget):
             ts = corrected_time(e["start_at"], self.dep["time_offset_seconds"])
             when = f"{ts:%Y-%m-%d %H:%M}" if ts else "no time"
             names = ", ".join(f"{l['common_name']} ×{l['count']}" for l in labels.event_labels(self.con, e["id"]))
-            mark = "✔" if e["n_labels"] else "○"
-            self.event_list.addItem(f"{mark} {when} · {e['n_files']} file(s)" + (f"\n    {names}" if names else ""))
+            it = QListWidgetItem(f"{when} · {e['n_files']} file(s)" + (f"\n{names}" if names else ""))
+            it.setIcon(icon("check" if e["n_labels"] else "camera", "#4E8A1E" if e["n_labels"] else "#6F7563", 16))
+            self.event_list.addItem(it)
             if e["id"] == cur_id:
                 sel = i
         self.event_list.blockSignals(False)

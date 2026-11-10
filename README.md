@@ -1,4 +1,4 @@
-# Camera Trap Tool
+# Trapster by Wildsolutions
 
 A simple Windows tool for camera trap data, inspired by AddaxAI:
 
@@ -19,7 +19,7 @@ The project dashboard shows a map of the stations (when online), a per-station t
 
 ## Installing
 
-Download the newest `CameraTrapTool-Setup-*.exe` from the repository's **Releases** page, or from the latest **Actions** run under *Artifacts*. Then double-click it. You don't need administrator rights.
+Download the newest `Trapster-portable-*.zip (or Trapster-Setup-*.exe)` from the repository's **Releases** page, or from the latest **Actions** run under *Artifacts*. Then double-click it. You don't need administrator rights.
 
 The detector uses your graphics card through DirectML (Intel Arc, AMD, NVIDIA) when it can, and the normal processor otherwise.
 
